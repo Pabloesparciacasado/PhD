@@ -79,7 +79,7 @@ model = model_valuation(
     currency = CURRENCY,
     div_df   = divs_filtrada,
 )
-
+ 
 
 # ─── 4. Pricing ───────────────────────────────────────────────────────────────
 

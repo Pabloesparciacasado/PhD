@@ -1,8 +1,14 @@
 # In[]
 import pandas as pd
 import numpy as np
-
+from scipy.stats import norm
+import sys
 import duckdb
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from __3_Functions.valuation import model_valuation
 
 
 con = duckdb.connect()
@@ -11,19 +17,30 @@ vol_surface = con.execute("""
 SELECT *
 FROM read_parquet('C:\\Users\pablo.esparcia\\Documents\OptionMetrics\\output\\volatility_surface.parquet')
 """).df()
+print(vol_surface.columns)
+#### Aplicamos BSM para mapear las volatilidades a precios de opciones. #####
+
+
+# Algoritmo de estandarización de maturities para la volatilidad
+# In[]
 
 
 
 
+# In[]
+model = model_valuation(curve_df = vol_surface)
+resultado_europeo = model.price_BS_general(vol_surface)
+resultado_europeo = resultado_europeo.rename(columns={"BS_Price": "Precio_Modelo"})
 
+# In[]
 
+print(resultado_europeo[resultado_europeo["CallPut"] == "P"].sort_values("forward").head(30))
 
+# In[]
 
+len(resultado_europeo)
 
-
-
-
-
+# In[]
 
 
 
@@ -101,3 +118,5 @@ FROM read_parquet('C:\\Users\pablo.esparcia\\Documents\OptionMetrics\\output\\vo
 # all_false = vol_surface.groupby(["Date", "Expiration"])["flag_wing_clipped"].any()
 # all_false.mean()
 # # %%
+
+# %%

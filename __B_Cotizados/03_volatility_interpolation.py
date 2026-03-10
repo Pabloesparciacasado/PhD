@@ -191,12 +191,6 @@ def interpolate_smile_slice(
 
 
 
-import numpy as np
-import pandas as pd
-from scipy.interpolate import CubicSpline
-
-
-
 def interpolate_smile_slice(
     df_slice: pd.DataFrame,
     n_grid: int = 100,
@@ -414,7 +408,7 @@ def interpolate_smile_slice(
     return pd.DataFrame({
         "moneyness":                m_grid,
         "log_moneyness":            k_grid,
-        "implied_vol":              iv_grid,
+        "ImpliedVol":              iv_grid,
         "total_variance":           iv_grid ** 2 * T,
         "m_obs_min":                m_min_obs,
         "m_obs_max":                m_max_obs,

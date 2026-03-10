@@ -39,9 +39,9 @@ class model_valuation:
     def __init__(
         self,
         curve_df: pd.DataFrame,
-        currency: int,
+        currency: int | None = None,
         div_df: pd.DataFrame | None = None,
-        base: float = 360.0,
+        base: float = 365.0
     ) -> None:
         self.curve_df = curve_df
         self.currency = currency
@@ -49,7 +49,7 @@ class model_valuation:
         self.base     = base
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Métodos pricing
+    # Métodos pricing desde fichero de volatilidad (v1)
     # ──────────────────────────────────────────────────────────────────────────
 
     def price_BS(self, volatility_data: pd.DataFrame) -> pd.DataFrame:
@@ -111,6 +111,54 @@ class model_valuation:
             )
             bloques.append(result)
 
+        return pd.concat(bloques)
+    # ──────────────────────────────────────────────────────────────────────────
+    # Métodos pricing general (v2) "vale para fichero vol_surface si se incluye el precio forward"
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def price_BS_general(self, copmlete_volatility_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Valoración Black-Scholes-Merton para opciones europeas. 
+       
+        Recupera S implícito desde el precio forward (implicitamente si hubiera dividendos los estaríamos descontando)
+        
+        Fórmulas:
+            S    = K · exp[d1·σ·√τ − (r−q+σ²/2)·τ]
+            Call = S·e^(−q·τ)·N(d1)  − K·e^(−r·τ)·N(d2)
+            Put  = K·e^(−r·τ)·N(−d2) − S·e^(−q·τ)·N(−d1)
+
+        Returns
+        -------
+        pd.DataFrame
+            Input con columnas añadidas: r, forward, BS_Price
+        """
+        bloques = []
+
+        for fecha, vol_fecha in copmlete_volatility_data.groupby("Date"):
+            if not (self.curve_df["Date"] == fecha).any():
+                continue
+
+            vol_fecha = self._filter_missing(vol_fecha)
+            if vol_fecha.empty:
+                continue
+
+            result        = vol_fecha.copy()
+            # r             = interpolate_rates_surface(self.curve_df, vol_fecha, fecha, self.currency, self.base)
+            # result["r"]   = r.values
+            F = result["forward"]
+            K = result["Strike"]
+            
+            d1 = (np.log(F/K) + (result["rate"] + 0.5*result["implied_vol"]**2)*result["T"])/(result["implied_vol"]*np.sqrt(result["T"]))
+            d2 = d1 - result["implied_vol"]*np.sqrt(result["T"])
+            disc_r = result["discount_factor"]
+            
+            mask_call = result["CallPut"] == "C"
+      
+            result["BS_Price"] = np.nan
+            result.loc[ mask_call, "BS_Price"] = disc_r*( F[mask_call]*norm.cdf(d1[mask_call]) - K[mask_call]*norm.cdf(d2[mask_call]) )
+            result.loc[~mask_call, "BS_Price"] = disc_r*( - F[~mask_call]*norm.cdf(-d1[~mask_call]) + K[~mask_call]*norm.cdf(-d2[~mask_call]) )
+            bloques.append(result)
+    
         return pd.concat(bloques)
 
     def price_american(
@@ -329,12 +377,14 @@ class model_valuation:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _filter_missing(self, vol_fecha: pd.DataFrame) -> pd.DataFrame:
-        """Descarta filas con ImpliedVol o Strike ausentes (sentinel -99.99)."""
-        return vol_fecha[
-            (vol_fecha["ImpliedVol"] > self.MISSING) &
-            (vol_fecha["Strike"]     > 0)
-        ]
+        """Descarta filas con volatilidad implícita o strike inválidos."""
 
+        vol_col = "ImpliedVol" if "ImpliedVol" in vol_fecha.columns else "implied_vol"
+
+        return vol_fecha[
+            (vol_fecha[vol_col] > self.MISSING) &
+            (vol_fecha["Strike"] > 0)
+        ]
     def _recover_S(
         self,
         result: pd.DataFrame,
