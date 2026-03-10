@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 import duckdb
 
+# ============================================================
+# 0. CARGA DEL FICHERO DE SUPERFICIE DE VOLATILIDAD
+# ============================================================
+
 con = duckdb.connect()
 
 vol_surface = con.execute("""
@@ -12,24 +16,39 @@ FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\
 print(vol_surface.columns)
 
 # ============================================================
-# SUPERFICIE CONSTANT-MATURITY A 30 DÍAS
+# 1. PARÁMETROS
 # ============================================================
 
 target_days = 30
 target_T = target_days / 365.0
 
-# ------------------------------------------------------------
-# 1. Base: si quieres usar solo la parte observada de cada smile
-# ------------------------------------------------------------
+# Usar solo la parte observada de cada smile
+use_only_observed = True
+
+# Activar o no el filtro de calidad temporal
+apply_maturity_filter = True
+
+# Umbrales del filtro temporal
+max_gap = 45          # máximo Days_2 - Days_1
+max_below_dist = 20   # máximo 30 - Days_1
+max_above_dist = 20   # máximo Days_2 - 30
+
+# ============================================================
+# 2. BASE DE TRABAJO
+# ============================================================
+
 vs = vol_surface.copy()
 
-# Recomendado para una primera versión:
-# vs = vs[vs["flag_inside_observed_range"]].copy()
+if use_only_observed:
+    vs = vs[vs["flag_inside_observed_range"]].copy()
 
+# Nos aseguramos de que Date esté en datetime
+vs["Date"] = pd.to_datetime(vs["Date"])
 
-# ------------------------------------------------------------
-# 2. Identificar, por fecha, los vencimientos que rodean 30 días
-# ------------------------------------------------------------
+# ============================================================
+# 3. IDENTIFICAR, PARA CADA FECHA, LOS VENCIMIENTOS QUE RODEAN 30 DÍAS
+# ============================================================
+
 days_by_date = (
     vs[["Date", "Days"]]
     .drop_duplicates()
@@ -38,15 +57,6 @@ days_by_date = (
 
 rows = []
 
-# ------------------------------------------------------------
-# Parámetros de control temporal
-# ------------------------------------------------------------
-apply_maturity_filter = True   
-
-max_gap = 45          # ancho máximo permitido: Days_2 - Days_1
-max_below_dist = 20   # distancia máxima de Days_1 a target_days
-max_above_dist = 20   # distancia máxima de Days_2 a target_days
-
 for date, df_date in days_by_date.groupby("Date"):
     days = np.sort(df_date["Days"].unique())
 
@@ -54,6 +64,7 @@ for date, df_date in days_by_date.groupby("Date"):
     upper = days[days > target_days]
     exact = days[days == target_days]
 
+    # Si existe exactamente 30 días, tomamos ese mismo vencimiento
     if len(exact) > 0:
         d1 = exact[0]
         d2 = exact[0]
@@ -61,20 +72,19 @@ for date, df_date in days_by_date.groupby("Date"):
         d1 = lower.max() if len(lower) > 0 else np.nan
         d2 = upper.min() if len(upper) > 0 else np.nan
 
-    # Distancias
+    # Distancias al target
     if pd.notna(d1) and pd.notna(d2):
         gap = d2 - d1
         below_dist = target_days - d1
         above_dist = d2 - target_days
+        basic_valid = True
     else:
         gap = np.nan
         below_dist = np.nan
         above_dist = np.nan
+        basic_valid = False
 
-    # Validez básica: hay cobertura a ambos lados o exacta
-    basic_valid = pd.notna(d1) and pd.notna(d2)
-
-    # Validez con filtro adicional opcional
+    # Filtro temporal opcional
     if apply_maturity_filter and basic_valid:
         valid = (
             (gap <= max_gap) and
@@ -97,50 +107,41 @@ for date, df_date in days_by_date.groupby("Date"):
 
 pairs_30 = pd.DataFrame(rows)
 
-# Nos quedamos solo con fechas válidas
+# Nos quedamos solo con fechas utilizables
 pairs_30 = pairs_30[pairs_30["valid_30d_interp"]].copy()
 
 print("Fechas utilizables para 30 días:", pairs_30["Date"].nunique())
 print("\nResumen de distancias:")
 print(pairs_30[["gap", "below_dist", "above_dist"]].describe())
 
-# Fechas utilizables:
-pairs_30 = pairs_30[
-    (
-        (pairs_30["Days_1"] == pairs_30["Days_2"]) & pairs_30["Days_1"].notna()
-    ) |
-    (
-        pairs_30["Days_1"].notna() & pairs_30["Days_2"].notna()
-    )
-].copy()
+# ============================================================
+# 4. EXTRAER EL VENCIMIENTO INFERIOR Y SUPERIOR
+# ============================================================
 
-print("Fechas utilizables para 30 días:", pairs_30["Date"].nunique())
-
-# ------------------------------------------------------------
-# 3. Extraer el vencimiento inferior y superior
-# ------------------------------------------------------------
 vs1 = vs.merge(
-    pairs_30[["Date", "Days_1"]],
+    pairs_30[["Date", "Days_1", "Days_2", "gap", "below_dist", "above_dist"]],
     left_on=["Date", "Days"],
     right_on=["Date", "Days_1"],
     how="inner"
 ).copy()
 
 vs2 = vs.merge(
-    pairs_30[["Date", "Days_2"]],
+    pairs_30[["Date", "Days_1", "Days_2", "gap", "below_dist", "above_dist"]],
     left_on=["Date", "Days"],
     right_on=["Date", "Days_2"],
     how="inner"
 ).copy()
 
-# ------------------------------------------------------------
-# 4. Renombrar columnas para mergear ambos lados
-# ------------------------------------------------------------
+# ============================================================
+# 5. RENOMBRAR COLUMNAS PARA COMBINAR AMBOS VENCIMIENTOS
+# ============================================================
+
 cols_keep = [
     "Date", "Expiration", "Days", "T",
     "moneyness", "log_moneyness", "CallPut",
     "implied_vol", "total_variance",
-    "forward", "rate", "discount_factor", "Strike"
+    "forward", "rate", "discount_factor", "Strike",
+    "gap", "below_dist", "above_dist"
 ]
 
 vs1 = vs1[cols_keep].rename(columns={
@@ -167,20 +168,31 @@ vs2 = vs2[cols_keep].rename(columns={
     "Strike": "Strike_2"
 })
 
-# ------------------------------------------------------------
-# 5. Merge por Date + moneyness + CallPut
-# ------------------------------------------------------------
+# ============================================================
+# 6. MERGE POR FECHA + MONEyness + LADO CALL/PUT
+# ============================================================
+
 surface_30 = vs1.merge(
     vs2,
-    on=["Date", "moneyness", "log_moneyness", "CallPut"],
+    on=[
+        "Date",
+        "moneyness",
+        "log_moneyness",
+        "CallPut",
+        "gap",
+        "below_dist",
+        "above_dist"
+    ],
     how="inner"
 ).copy()
 
 print("Filas tras merge temporal:", len(surface_30))
 
-# ------------------------------------------------------------
-# 6. Interpolación lineal en varianza total
-# ------------------------------------------------------------
+# ============================================================
+# 7. INTERPOLACIÓN LINEAL EN VARIANZA TOTAL
+# ============================================================
+
+# Caso exacto: ya hay vencimiento a 30 días
 exact_mask = surface_30["Days_1"] == surface_30["Days_2"]
 
 surface_30["w1"] = np.where(
@@ -195,18 +207,21 @@ surface_30["w2"] = np.where(
     (target_days - surface_30["Days_1"]) / (surface_30["Days_2"] - surface_30["Days_1"])
 )
 
+# Varianza total a 30 días
 surface_30["total_variance"] = (
     surface_30["w1"] * surface_30["total_variance_1"] +
     surface_30["w2"] * surface_30["total_variance_2"]
 )
 
+# Recuperar IV a 30 días
 surface_30["implied_vol"] = np.sqrt(
     np.maximum(surface_30["total_variance"] / target_T, 1e-12)
 )
 
-# ------------------------------------------------------------
-# 7. Interpolación simple de forward y rate
-# ------------------------------------------------------------
+# ============================================================
+# 8. INTERPOLACIÓN SIMPLE DE FORWARD Y RATE
+# ============================================================
+
 surface_30["forward"] = (
     surface_30["w1"] * surface_30["forward_1"] +
     surface_30["w2"] * surface_30["forward_2"]
@@ -219,12 +234,13 @@ surface_30["rate"] = (
 
 surface_30["discount_factor"] = np.exp(-surface_30["rate"] * target_T)
 
-# Strike coherente con el forward interpolado
+# Strike consistente con el nuevo forward
 surface_30["Strike"] = surface_30["moneyness"] * surface_30["forward"]
 
-# ------------------------------------------------------------
-# 8. Añadir columnas finales
-# ------------------------------------------------------------
+# ============================================================
+# 9. COLUMNAS FINALES
+# ============================================================
+
 surface_30["Days"] = target_days
 surface_30["T"] = target_T
 
@@ -234,6 +250,7 @@ surface_30_final = surface_30[
         "Days", "T",
         "Days_1", "Days_2",
         "Expiration_1", "Expiration_2",
+        "gap", "below_dist", "above_dist",
         "w1", "w2",
         "moneyness", "log_moneyness", "CallPut",
         "forward", "rate", "discount_factor",
@@ -242,9 +259,8 @@ surface_30_final = surface_30[
     ]
 ].copy()
 
-# In[]:
-
-
+print(surface_30_final.head())
+print(surface_30_final.shape)
 
 # In[]:
 
@@ -255,8 +271,6 @@ duckdb.from_df(surface_30_final).write_parquet(PARQET_OUTPUT, compression='snapp
 
 
 print("Generada la superficie de volatilidad estadarizada a 30 días con éxito")
-
-
 
 
 
