@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/pablo.esparcia/Documents/OptionMetrics/Acumulado/**)",
+      "Bash(python -c \":*)",
+      "Read(//c/Users/pablo.esparcia/anaconda3/**)",
+      "Bash(/c/Users/pablo.esparcia/AppData/Local/Python/bin/python3.exe -c \"import pandas; print\\(pandas.__version__\\)\")",
+      "Bash(/c/Users/pablo.esparcia/AppData/Local/Python/bin/python3.exe -c \":*)",
+      "Read(//c/Users/pablo.esparcia//**)",
+      "Read(//c/ProgramData//**)",
+      "Read(//e/PhD/**)",
+      "Bash(find \"e:/PhD/Código/__2_Files/__pycache__\" -name \"volatility_surface*.pyc\" -delete)",
+      "Bash(python3 -c \"import duckdb; print\\(''ok''\\)\")",
+      "Bash(py -3 -c \"import duckdb; print\\(''ok''\\)\")",
+      "Bash(py -3 -c \":*)",
+      "mcp__claude_ai_Gamma__generate",
+      "mcp__claude_ai_Gamma__get_generation_status"
+    ]
+  }
+}

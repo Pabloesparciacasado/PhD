@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//e/PhD/Código/**)",
+      "Bash(done)"
+    ]
+  }
+}
