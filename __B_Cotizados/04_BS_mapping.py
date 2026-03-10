@@ -13,6 +13,38 @@ FROM read_parquet('C:\\Users\pablo.esparcia\\Documents\OptionMetrics\\output\\vo
 """).df()
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # vol_surface_2 = vol_surface[(vol_surface["flag_wing_clipped"]) == False]
 # #print(vol_surface_2.head(50).sort_values("Days"))
 
