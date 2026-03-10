@@ -148,7 +148,7 @@ class model_valuation:
             F = result["forward"]
             K = result["Strike"]
             
-            d1 = (np.log(F/K) + (result["rate"] + 0.5*result["implied_vol"]**2)*result["T"])/(result["implied_vol"]*np.sqrt(result["T"]))
+            d1 = (np.log(F/K) + ( 0.5*result["implied_vol"]**2)*result["T"])/(result["implied_vol"]*np.sqrt(result["T"]))
             d2 = d1 - result["implied_vol"]*np.sqrt(result["T"])
             disc_r = result["discount_factor"]
             

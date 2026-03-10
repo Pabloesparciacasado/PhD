@@ -273,5 +273,4 @@ duckdb.from_df(surface_30_final).write_parquet(PARQET_OUTPUT, compression='snapp
 print("Generada la superficie de volatilidad estadarizada a 30 días con éxito")
 
 
-
 # In[]:
