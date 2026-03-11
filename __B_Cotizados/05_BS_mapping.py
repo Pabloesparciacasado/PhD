@@ -16,7 +16,7 @@ con = duckdb.connect()
 
 vol_surface = con.execute("""
 SELECT *
-FROM read_parquet("C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_30.parquet")
+FROM read_parquet("C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_30_B.parquet")
 """).df()
 
 #### Aplicamos BSM para mapear las volatilidades a precios de opciones. #####

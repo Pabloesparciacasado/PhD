@@ -39,6 +39,68 @@ if use_only_observed:
     vs = vs[vs["flag_inside_observed_range"]].copy()
 
 vs["Date"] = pd.to_datetime(vs["Date"])
+vs["Expiration"] = pd.to_datetime(vs["Expiration"])
+
+# ============================================================
+# 2.1. COLAPSAR DUPLICADOS POR DATE × DAYS × MONEYNESS × CALLPUT
+# ============================================================
+# Motivo:
+# puede haber varias Expiration distintas con el mismo número de Days
+# dentro de una misma fecha. Para interpolar a 30d necesitamos una sola
+# smile por Date × Days. Aquí agregamos esas duplicidades.
+
+group_cols = ["Date", "Days", "moneyness", "CallPut"]
+
+agg_dict = {
+    "log_moneyness": "first",
+    "implied_vol": "median",
+    "total_variance": "median",
+    "forward": "median",
+    "rate": "median",
+    "discount_factor": "median",
+    "Strike": "median",
+    "T": "first",
+    "m_obs_min": "median",
+    "m_obs_max": "median",
+    "k_obs_min": "median",
+    "k_obs_max": "median",
+    "flag_inside_observed_range": "all",
+    "flag_wing_clipped": "any",
+}
+
+# Añadir columnas Shimko solo si existen
+optional_cols = ["shimko_rmse", "dsigma_dm", "d2sigma_dm2"]
+for col in optional_cols:
+    if col in vs.columns:
+        agg_dict[col] = "median"
+
+# Expiration representativa:
+# - tomamos la mínima si hay varias con mismo Days
+#   (en la práctica debería coincidir casi siempre)
+agg_dict["Expiration"] = "min"
+
+vs = (
+    vs.groupby(group_cols, as_index=False)
+      .agg(agg_dict)
+      .sort_values(["Date", "Days", "CallPut", "moneyness"])
+      .reset_index(drop=True)
+)
+
+# Reordenar columnas de forma cómoda
+base_cols = [
+    "Date", "Expiration", "Days", "T",
+    "moneyness", "log_moneyness", "CallPut",
+    "implied_vol", "total_variance",
+    "forward", "rate", "discount_factor", "Strike",
+    "m_obs_min", "m_obs_max", "k_obs_min", "k_obs_max",
+    "flag_inside_observed_range", "flag_wing_clipped"
+]
+extra_cols = [c for c in vs.columns if c not in base_cols]
+vs = vs[base_cols + extra_cols]
+
+# Check de unicidad tras colapsar
+dup_check = vs.duplicated(subset=["Date", "Days", "moneyness", "CallPut"]).sum()
+print(f"Duplicados tras colapsar Date×Days×moneyness×CallPut: {dup_check}")
 
 # ============================================================
 # 3. IDENTIFICAR VENCIMIENTOS QUE RODEAN 30 DÍAS
@@ -93,6 +155,7 @@ for date, df_date in days_by_date.groupby("Date"):
         "above_dist":       above_dist,
         "basic_valid":      basic_valid,
         "valid_30d_interp": valid,
+        "is_exact_30":      bool(pd.notna(d1) and pd.notna(d2) and d1 == d2),
     })
 
 pairs_30 = pd.DataFrame(rows)
@@ -106,33 +169,78 @@ print(pairs_30[["gap", "below_dist", "above_dist"]].describe())
 # 4. EXTRAER VENCIMIENTO INFERIOR Y SUPERIOR
 # ============================================================
 
+pairs_cols = ["Date", "Days_1", "Days_2", "gap", "below_dist", "above_dist", "is_exact_30"]
+
 vs1 = vs.merge(
-    pairs_30[["Date", "Days_1", "Days_2", "gap", "below_dist", "above_dist"]],
+    pairs_30[pairs_cols],
     left_on=["Date", "Days"],
     right_on=["Date", "Days_1"],
-    how="inner"
+    how="inner",
+    validate="many_to_one"
 ).copy()
+
+pairs_30_non_exact = pairs_30[~pairs_30["is_exact_30"]].copy()
 
 vs2 = vs.merge(
-    pairs_30[["Date", "Days_1", "Days_2", "gap", "below_dist", "above_dist"]],
+    pairs_30_non_exact[["Date", "Days_1", "Days_2", "gap", "below_dist", "above_dist"]],
     left_on=["Date", "Days"],
     right_on=["Date", "Days_2"],
-    how="inner"
+    how="inner",
+    validate="many_to_one"
 ).copy()
 
 # ============================================================
-# 5. RENOMBRAR COLUMNAS
+# 5. CASO EXACTO 30 DÍAS (SIN SELF-MERGE)
 # ============================================================
+
+exact_30 = vs1[vs1["is_exact_30"]].copy()
+
+if not exact_30.empty:
+    exact_30["w1"] = 1.0
+    exact_30["w2"] = 0.0
+
+    exact_30["Days"] = target_days
+    exact_30["T"]    = target_T
+
+    exact_30["Expiration_1"] = exact_30["Expiration"]
+    exact_30["Expiration_2"] = exact_30["Expiration"]
+
+    exact_30_final = exact_30[[
+        "Date",
+        "Days", "T",
+        "Days_1", "Days_2",
+        "Expiration_1", "Expiration_2",
+        "gap", "below_dist", "above_dist",
+        "w1", "w2",
+        "moneyness", "log_moneyness", "CallPut",
+        "forward", "rate", "discount_factor",
+        "Strike",
+        "implied_vol", "total_variance",
+        "flag_inside_observed_range", "flag_wing_clipped"
+    ]].copy()
+else:
+    exact_30_final = pd.DataFrame()
+
+# ============================================================
+# 6. CASO INTERPOLADO ENTRE DOS MADURECES
+# ============================================================
+
+vs1_non_exact = vs1[~vs1["is_exact_30"]].copy()
 
 cols_keep = [
     "Date", "Expiration", "Days", "T",
     "moneyness", "log_moneyness", "CallPut",
     "implied_vol", "total_variance",
     "forward", "rate", "discount_factor", "Strike",
+    "flag_inside_observed_range", "flag_wing_clipped",
     "gap", "below_dist", "above_dist"
 ]
 
-vs1 = vs1[cols_keep].rename(columns={
+# conservar también columnas Shimko si existen
+extra_keep = [c for c in ["shimko_rmse", "dsigma_dm", "d2sigma_dm2"] if c in vs1_non_exact.columns]
+cols_keep = cols_keep + extra_keep
+
+vs1_non_exact = vs1_non_exact[cols_keep].rename(columns={
     "Expiration":       "Expiration_1",
     "Days":             "Days_1",
     "T":                "T_1",
@@ -142,6 +250,11 @@ vs1 = vs1[cols_keep].rename(columns={
     "rate":             "rate_1",
     "discount_factor":  "discount_factor_1",
     "Strike":           "Strike_1",
+    "flag_inside_observed_range": "flag_inside_observed_range_1",
+    "flag_wing_clipped": "flag_wing_clipped_1",
+    "shimko_rmse":      "shimko_rmse_1" if "shimko_rmse" in cols_keep else "shimko_rmse",
+    "dsigma_dm":        "dsigma_dm_1" if "dsigma_dm" in cols_keep else "dsigma_dm",
+    "d2sigma_dm2":      "d2sigma_dm2_1" if "d2sigma_dm2" in cols_keep else "d2sigma_dm2",
 })
 
 vs2 = vs2[cols_keep].rename(columns={
@@ -154,101 +267,101 @@ vs2 = vs2[cols_keep].rename(columns={
     "rate":             "rate_2",
     "discount_factor":  "discount_factor_2",
     "Strike":           "Strike_2",
+    "flag_inside_observed_range": "flag_inside_observed_range_2",
+    "flag_wing_clipped": "flag_wing_clipped_2",
+    "shimko_rmse":      "shimko_rmse_2" if "shimko_rmse" in cols_keep else "shimko_rmse",
+    "dsigma_dm":        "dsigma_dm_2" if "dsigma_dm" in cols_keep else "dsigma_dm",
+    "d2sigma_dm2":      "d2sigma_dm2_2" if "d2sigma_dm2" in cols_keep else "d2sigma_dm2",
 })
 
-# ============================================================
-# 6. MERGE POR FECHA + MONEYNESS + LADO CALL/PUT
-# ============================================================
-
-surface_30 = vs1.merge(
+surface_30_interp = vs1_non_exact.merge(
     vs2,
-    on=["Date", "moneyness", "log_moneyness", "CallPut",
-        "gap", "below_dist", "above_dist"],
-    how="inner"
+    on=["Date", "moneyness", "CallPut", "gap", "below_dist", "above_dist"],
+    how="inner",
+    validate="one_to_one"
 ).copy()
 
-print("Filas tras merge temporal:", len(surface_30))
+print("Filas tras merge temporal (interpoladas):", len(surface_30_interp))
 
 # ============================================================
 # 7. PESOS DE INTERPOLACIÓN TEMPORAL
 # ============================================================
 
-exact_mask = surface_30["Days_1"] == surface_30["Days_2"]
-
-surface_30["w1"] = np.where(
-    exact_mask,
-    1.0,
-    (surface_30["Days_2"] - target_days) / (surface_30["Days_2"] - surface_30["Days_1"])
+surface_30_interp["w1"] = (
+    (surface_30_interp["Days_2"] - target_days) /
+    (surface_30_interp["Days_2"] - surface_30_interp["Days_1"])
 )
-surface_30["w2"] = np.where(
-    exact_mask,
-    0.0,
-    (target_days - surface_30["Days_1"]) / (surface_30["Days_2"] - surface_30["Days_1"])
+
+surface_30_interp["w2"] = (
+    (target_days - surface_30_interp["Days_1"]) /
+    (surface_30_interp["Days_2"] - surface_30_interp["Days_1"])
 )
 
 # ============================================================
 # 8. INTERPOLACIÓN EN VARIANZA TOTAL, FORWARD Y RATE
 # ============================================================
 
-# ----------------------------------------------------------
-# Varianza total — interpolación lineal en w = sigma^2 * T
-# Estándar en la literatura (Conrad et al. 2013, CBOE VIX)
-# ----------------------------------------------------------
-surface_30["total_variance"] = (
-    surface_30["w1"] * surface_30["total_variance_1"] +
-    surface_30["w2"] * surface_30["total_variance_2"]
+surface_30_interp["total_variance"] = (
+    surface_30_interp["w1"] * surface_30_interp["total_variance_1"] +
+    surface_30_interp["w2"] * surface_30_interp["total_variance_2"]
 )
 
-surface_30["implied_vol"] = np.sqrt(
-    np.maximum(surface_30["total_variance"] / target_T, 1e-12)
+surface_30_interp["implied_vol"] = np.sqrt(
+    np.maximum(surface_30_interp["total_variance"] / target_T, 1e-12)
 )
 
-# ----------------------------------------------------------
-# Forward — interpolación log-lineal
-# F(T*) = exp(w1 * log(F1) + w2 * log(F2))
-# Más correcto que interpolación lineal porque el forward
-# crece exponencialmente con T bajo cost-of-carry constante.
-# ----------------------------------------------------------
-surface_30["forward"] = np.exp(
-    surface_30["w1"] * np.log(surface_30["forward_1"]) +
-    surface_30["w2"] * np.log(surface_30["forward_2"])
+surface_30_interp["forward"] = np.exp(
+    surface_30_interp["w1"] * np.log(surface_30_interp["forward_1"]) +
+    surface_30_interp["w2"] * np.log(surface_30_interp["forward_2"])
 )
 
-# ----------------------------------------------------------
-# Rate — interpolación log-lineal en factores de descuento
-# DF(T*) = exp(w1 * log(DF1) + w2 * log(DF2))
-# r(T*)  = -log(DF(T*)) / T*
-#
-# Estándar de industria: los factores de descuento se
-# interpolan log-linealmente (equivalente a interpolar
-# linealmente las tasas continuas ponderadas por plazo,
-# que es la convención de bootstrapping de curvas).
-# ----------------------------------------------------------
-log_df1 = -surface_30["rate_1"] * surface_30["T_1"]  # = log(DF1)
-log_df2 = -surface_30["rate_2"] * surface_30["T_2"]  # = log(DF2)
+log_df1 = -surface_30_interp["rate_1"] * surface_30_interp["T_1"]
+log_df2 = -surface_30_interp["rate_2"] * surface_30_interp["T_2"]
 
 log_df_target = (
-    surface_30["w1"] * log_df1 +
-    surface_30["w2"] * log_df2
+    surface_30_interp["w1"] * log_df1 +
+    surface_30_interp["w2"] * log_df2
 )
 
-surface_30["rate"]            = -log_df_target / target_T
-surface_30["discount_factor"] = np.exp(log_df_target)
+surface_30_interp["rate"] = -log_df_target / target_T
+surface_30_interp["discount_factor"] = np.exp(log_df_target)
 
-# ----------------------------------------------------------
-# Strike consistente con el forward interpolado
-# K = moneyness * F(T*)
-# ----------------------------------------------------------
-surface_30["Strike"] = surface_30["moneyness"] * surface_30["forward"]
+surface_30_interp["Strike"] = surface_30_interp["moneyness"] * surface_30_interp["forward"]
+
+surface_30_interp["flag_inside_observed_range"] = (
+    surface_30_interp["flag_inside_observed_range_1"] &
+    surface_30_interp["flag_inside_observed_range_2"]
+)
+
+surface_30_interp["flag_wing_clipped"] = (
+    surface_30_interp["flag_wing_clipped_1"] |
+    surface_30_interp["flag_wing_clipped_2"]
+)
 
 # ============================================================
 # 9. COLUMNAS FINALES
 # ============================================================
 
-surface_30["Days"] = target_days
-surface_30["T"]    = target_T
+surface_30_interp["Days"] = target_days
+surface_30_interp["T"] = target_T
 
-surface_30_final = surface_30[[
+surface_30_interp_final = surface_30_interp[[
+    "Date",
+    "Days", "T",
+    "Days_1", "Days_2",
+    "Expiration_1", "Expiration_2",
+    "gap", "below_dist", "above_dist",
+    "w1", "w2",
+    "moneyness", "CallPut",
+    "forward", "rate", "discount_factor",
+    "Strike",
+    "implied_vol", "total_variance",
+    "flag_inside_observed_range", "flag_wing_clipped"
+]].copy()
+
+surface_30_interp_final["log_moneyness"] = np.log(surface_30_interp_final["moneyness"])
+
+surface_30_interp_final = surface_30_interp_final[[
     "Date",
     "Days", "T",
     "Days_1", "Days_2",
@@ -259,16 +372,37 @@ surface_30_final = surface_30[[
     "forward", "rate", "discount_factor",
     "Strike",
     "implied_vol", "total_variance",
-]].copy()
+    "flag_inside_observed_range", "flag_wing_clipped"
+]]
+
+surface_30_final = pd.concat(
+    [exact_30_final, surface_30_interp_final],
+    ignore_index=True
+)
+
+surface_30_final = surface_30_final.sort_values(
+    ["Date", "CallPut", "moneyness"]
+).reset_index(drop=True)
 
 print(surface_30_final.head())
 print(surface_30_final.shape)
 
+
+print(surface_30_interp.columns.tolist())
+
+
 # ============================================================
-# 10. GUARDAR
+# 10. CHECK FINAL DE UNICIDAD
 # ============================================================
 
-PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_30.parquet"
+dup_final = surface_30_final.duplicated(subset=["Date", "moneyness", "CallPut"]).sum()
+print(f"Duplicados finales Date×moneyness×CallPut: {dup_final}")
+
+# ============================================================
+# 11. GUARDAR
+# ============================================================
+
+PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_30_B.parquet"
 duckdb.from_df(surface_30_final).write_parquet(PARQUET_OUTPUT, compression="snappy")
 
 print("Generada la superficie de volatilidad estandarizada a 30 días con éxito")
