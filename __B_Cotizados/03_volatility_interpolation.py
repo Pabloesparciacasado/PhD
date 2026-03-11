@@ -1,3 +1,4 @@
+# In[]:
 import pandas as pd
 import numpy as np
 from scipy.interpolate import PchipInterpolator, CubicSpline
@@ -14,180 +15,185 @@ FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\
 quoted_option = quoted_option[quoted_option["flag_otm"]]
 quoted_option = quoted_option[(quoted_option["Moneyness"] >= 0.3) & (quoted_option["Moneyness"] <= 1.7)]
 
+
+
+quoted_option.groupby(quoted_option["Date"].dt.year).size().rename("n_contracts")
 # In[]:
 # Función de interpolación cubic spline:
 
 
-def interpolate_smile_slice(
-    df_slice: pd.DataFrame,
-    n_grid: int = 100,
-    use_observed_grid: bool = True,
-    global_moneyness_min: float = 0.5,
-    global_moneyness_max: float = 1.5,
-    min_nodes: int = 5,
-    min_iv: float = 0.03,          # suelo económico de IV, no numérico
-    max_iv: float = 5.00,          # opcional: techo defensivo
-    bc_type: str = "natural"       # más estable en extremos que not-a-knot
-) -> pd.DataFrame | None:
-    """
-    Interpola una smile de IV en función de moneyness (K/F),
-    pero tratando las alas en log-moneyness k = log(K/F).
+# def interpolate_smile_slice(
+#     df_slice: pd.DataFrame,
+#     n_grid: int = 100,
+#     use_observed_grid: bool = True,
+#     global_moneyness_min: float = 0.5,
+#     global_moneyness_max: float = 1.5,
+#     min_nodes: int = 5,
+#     min_iv: float = 0.03,          # suelo económico de IV, no numérico
+#     max_iv: float = 5.00,          # opcional: techo defensivo
+#     bc_type: str = "natural"       # más estable en extremos que not-a-knot
+# ) -> pd.DataFrame | None:
+#     """
+#     Interpola una smile de IV en función de moneyness (K/F),
+#     pero tratando las alas en log-moneyness k = log(K/F).
 
-    Dentro del rango observado:
-        - CubicSpline sobre IV(k)
+#     Dentro del rango observado:
+#         - CubicSpline sobre IV(k)
 
-    Fuera del rango observado (si use_observed_grid=False):
-        - extrapolación lineal en varianza total w(k) = sigma(k)^2 * T
-        - usando la derivada del spline en el extremo observado
-        - con clipping de pendiente para evitar alas decrecientes
-        - con suelo en IV mínima
+#     Fuera del rango observado (si use_observed_grid=False):
+#         - extrapolación lineal en varianza total w(k) = sigma(k)^2 * T
+#         - usando la derivada del spline en el extremo observado
+#         - con clipping de pendiente para evitar alas decrecientes
+#         - con suelo en IV mínima
 
-    Devuelve:
-        DataFrame con:
-        moneyness, log_moneyness, implied_vol,
-        total_variance, m_obs_min, m_obs_max,
-        k_obs_min, k_obs_max,
-        flag_inside_observed_range, flag_wing_clipped
-    """
+#     Devuelve:
+#         DataFrame con:
+#         moneyness, log_moneyness, implied_vol,
+#         total_variance, m_obs_min, m_obs_max,
+#         k_obs_min, k_obs_max,
+#         flag_inside_observed_range, flag_wing_clipped
+#     """
 
-    required_cols = {"Moneyness", "ImpliedVolatility", "Days"}
-    missing = required_cols - set(df_slice.columns)
-    if missing:
-        raise ValueError(f"Faltan columnas requeridas: {missing}")
+#     required_cols = {"Moneyness", "ImpliedVolatility", "Days"}
+#     missing = required_cols - set(df_slice.columns)
+#     if missing:
+#         raise ValueError(f"Faltan columnas requeridas: {missing}")
 
-    df = df_slice.copy()
-    df = df[np.isfinite(df["Moneyness"])]
-    df = df[np.isfinite(df["ImpliedVolatility"])]
-    df = df[(df["Moneyness"] > 0) & (df["ImpliedVolatility"] > 0)]
+#     df = df_slice.copy()
+#     df = df[np.isfinite(df["Moneyness"])]
+#     df = df[np.isfinite(df["ImpliedVolatility"])]
+#     df = df[(df["Moneyness"] > 0) & (df["ImpliedVolatility"] > 0)]
 
-    if df.empty:
-        return None
+#     if df.empty:
+#         return None
 
-    # Agrupar duplicados de moneyness de forma robusta
-    df = (
-        df.groupby("Moneyness", as_index=False)
-          .agg({
-              "ImpliedVolatility": "median",
-              "Days": "first"
-          })
-          .sort_values("Moneyness")
-          .reset_index(drop=True)
-    )
+#     # Agrupar duplicados de moneyness de forma robusta
+#     df = (
+#         df.groupby("Moneyness", as_index=False)
+#           .agg({
+#               "ImpliedVolatility": "median",
+#               "Days": "first"
+#           })
+#           .sort_values("Moneyness")
+#           .reset_index(drop=True)
+#     )
 
-    m = df["Moneyness"].to_numpy(dtype=float)
-    iv = df["ImpliedVolatility"].to_numpy(dtype=float)
+#     m = df["Moneyness"].to_numpy(dtype=float)
+#     iv = df["ImpliedVolatility"].to_numpy(dtype=float)
 
-    # Pasamos a log-moneyness
-    k = np.log(m)
+#     # Pasamos a log-moneyness
+#     k = np.log(m)
 
-    # Recuento de nodos a cada lado del ATM, ya sin duplicados
-    n_left = np.sum(k < 0.0)
-    n_right = np.sum(k > 0.0)
+#     # Recuento de nodos a cada lado del ATM, ya sin duplicados
+#     n_left = np.sum(k < 0.0)
+#     n_right = np.sum(k > 0.0)
 
-    if len(k) < min_nodes or n_left < 2 or n_right < 2:
-        return None
+#     if len(k) < min_nodes or n_left < 2 or n_right < 2:
+#         return None
 
-    T = float(df["Days"].iloc[0]) / 365.0
-    if not np.isfinite(T) or T <= 0:
-        return None
+#     T = float(df["Days"].iloc[0]) / 365.0
+#     if not np.isfinite(T) or T <= 0:
+#         return None
 
-    # Suelo de varianza total derivado de min_iv
-    min_total_variance = (min_iv ** 2) * T
-    max_total_variance = (max_iv ** 2) * T
+#     # Suelo de varianza total derivado de min_iv
+#     min_total_variance = (min_iv ** 2) * T
+#     max_total_variance = (max_iv ** 2) * T
 
-    k_min_obs = float(k.min())
-    k_max_obs = float(k.max())
-    m_min_obs = float(m.min())
-    m_max_obs = float(m.max())
+#     k_min_obs = float(k.min())
+#     k_max_obs = float(k.max())
+#     m_min_obs = float(m.min())
+#     m_max_obs = float(m.max())
 
-    # Spline sobre IV(k) dentro del rango observado
-    interp = CubicSpline(k, iv, bc_type=bc_type, extrapolate=False)
+#     # Spline sobre IV(k) dentro del rango observado
+#     interp = CubicSpline(k, iv, bc_type=bc_type, extrapolate=False)
+#     #interp = PchipInterpolator(k, iv)
 
-    # Grid
-    if use_observed_grid:
-        k_grid = np.linspace(k_min_obs, k_max_obs, n_grid)
-    else:
-        if global_moneyness_min <= 0 or global_moneyness_max <= 0:
-            raise ValueError("Los extremos globales de moneyness deben ser > 0.")
-        if global_moneyness_min >= global_moneyness_max:
-            raise ValueError("global_moneyness_min debe ser menor que global_moneyness_max.")
+#     # Grid
+#     if use_observed_grid:
+#         k_grid = np.linspace(k_min_obs, k_max_obs, n_grid)
 
-        k_global_min = np.log(global_moneyness_min)
-        k_global_max = np.log(global_moneyness_max)
+#     else:
+#         if global_moneyness_min <= 0 or global_moneyness_max <= 0:
+#             raise ValueError("Los extremos globales de moneyness deben ser > 0.")
+#         if global_moneyness_min >= global_moneyness_max:
+#             raise ValueError("global_moneyness_min debe ser menor que global_moneyness_max.")
 
-        if k_global_min > k_min_obs or k_global_max < k_max_obs:
-            raise ValueError(
-                "El grid global no contiene completamente el rango observado. "
-                f"Observado: [{m_min_obs:.4f}, {m_max_obs:.4f}] | "
-                f"Global: [{global_moneyness_min:.4f}, {global_moneyness_max:.4f}]"
-            )
+#         k_global_min = np.log(global_moneyness_min)
+#         k_global_max = np.log(global_moneyness_max)
 
-        k_grid = np.linspace(k_global_min, k_global_max, n_grid)
+#         if k_global_min > k_min_obs or k_global_max < k_max_obs:
+#             raise ValueError(
+#                 "El grid global no contiene completamente el rango observado. "
+#                 f"Observado: [{m_min_obs:.4f}, {m_max_obs:.4f}] | "
+#                 f"Global: [{global_moneyness_min:.4f}, {global_moneyness_max:.4f}]"
+#             )
 
-    m_grid = np.exp(k_grid)
+#         k_grid = np.linspace(k_global_min, k_global_max, n_grid)
 
-    # Interpolación interior
-    iv_grid = interp(k_grid)
+#     m_grid = np.exp(k_grid)
 
-    # Flags
-    flag_inside = (k_grid >= k_min_obs) & (k_grid <= k_max_obs)
-    flag_wing_clipped = np.zeros_like(k_grid, dtype=bool)
+#     # Interpolación interior
+#     iv_grid = interp(k_grid)
 
-    # Extrapolación en alas
-    if not use_observed_grid:
-        w_obs = iv**2 * T
+#     # Flags
+#     flag_inside = (k_grid >= k_min_obs) & (k_grid <= k_max_obs)
+#     flag_wing_clipped = np.zeros_like(k_grid, dtype=bool)
 
-        # Derivadas del spline de IV respecto a k
-        div_dk_left = float(interp(k_min_obs, 1))
-        div_dk_right = float(interp(k_max_obs, 1))
+#     # Extrapolación en alas
+#     if not use_observed_grid:
+#         w_obs = iv**2 * T
 
-        # dw/dk = 2 * sigma * T * d(sigma)/dk
-        slope_left_w = 2.0 * iv[0] * T * div_dk_left
-        slope_right_w = 2.0 * iv[-1] * T * div_dk_right
+#         # Derivadas del spline de IV respecto a k
+#         div_dk_left = float(interp(k_min_obs, 1))
+#         div_dk_right = float(interp(k_max_obs, 1))
 
-        # Clipping de pendientes para evitar colapso de alas:
-        # - ala izquierda: al moverte a k más pequeño, no queremos que w baje
-        #   => slope_left_w NO debe ser positiva
-        # - ala derecha: al moverte a k más grande, no queremos que w baje
-        #   => slope_right_w NO debe ser negativa
-        slope_left_w = min(slope_left_w, 0.0)
-        slope_right_w = max(slope_right_w, 0.0)
+#         # dw/dk = 2 * sigma * T * d(sigma)/dk
+#         slope_left_w = 2.0 * iv[0] * T * div_dk_left
+#         slope_right_w = 2.0 * iv[-1] * T * div_dk_right
 
-        left_mask = k_grid < k_min_obs
-        right_mask = k_grid > k_max_obs
+#         # Clipping de pendientes para evitar colapso de alas:
+#         # - ala izquierda: al moverte a k más pequeño, no queremos que w baje
+#         #   => slope_left_w NO debe ser positiva
+#         # - ala derecha: al moverte a k más grande, no queremos que w baje
+#         #   => slope_right_w NO debe ser negativa
+#         slope_left_w = min(slope_left_w, 0.0)
+#         slope_right_w = max(slope_right_w, 0.0)
 
-        if np.any(left_mask):
-            w_left = w_obs[0] + slope_left_w * (k_grid[left_mask] - k_min_obs)
-            clipped_left = (w_left <= min_total_variance)
-            w_left = np.clip(w_left, min_total_variance, max_total_variance)
-            iv_grid[left_mask] = np.sqrt(w_left / T)
-            flag_wing_clipped[left_mask] = clipped_left
+#         left_mask = k_grid < k_min_obs
+#         right_mask = k_grid > k_max_obs
 
-        if np.any(right_mask):
-            w_right = w_obs[-1] + slope_right_w * (k_grid[right_mask] - k_max_obs)
-            clipped_right = (w_right <= min_total_variance)
-            w_right = np.clip(w_right, min_total_variance, max_total_variance)
-            iv_grid[right_mask] = np.sqrt(w_right / T)
-            flag_wing_clipped[right_mask] = clipped_right
+#         if np.any(left_mask):
+#             w_left = w_obs[0] + slope_left_w * (k_grid[left_mask] - k_min_obs)
+#             clipped_left = (w_left <= min_total_variance)
+#             w_left = np.clip(w_left, min_total_variance, max_total_variance)
+#             iv_grid[left_mask] = np.sqrt(w_left / T)
+#             flag_wing_clipped[left_mask] = clipped_left
 
-    # Protección final por si hubiera ruido numérico dentro del rango observado
-    iv_grid = np.clip(iv_grid, min_iv, max_iv)
-    total_variance_grid = iv_grid**2 * T
+#         if np.any(right_mask):
+#             w_right = w_obs[-1] + slope_right_w * (k_grid[right_mask] - k_max_obs)
+#             clipped_right = (w_right <= min_total_variance)
+#             w_right = np.clip(w_right, min_total_variance, max_total_variance)
+#             iv_grid[right_mask] = np.sqrt(w_right / T)
+#             flag_wing_clipped[right_mask] = clipped_right
 
-    smile = pd.DataFrame({
-        "moneyness": m_grid,
-        "log_moneyness": k_grid,
-        "implied_vol": iv_grid,
-        "total_variance": total_variance_grid,
-        "m_obs_min": m_min_obs,
-        "m_obs_max": m_max_obs,
-        "k_obs_min": k_min_obs,
-        "k_obs_max": k_max_obs,
-        "flag_inside_observed_range": flag_inside,
-        "flag_wing_clipped": flag_wing_clipped,
-    })
+#     # Protección final por si hubiera ruido numérico dentro del rango observado
+#     iv_grid = np.clip(iv_grid, min_iv, max_iv)
+#     total_variance_grid = iv_grid**2 * T
 
-    return smile
+#     smile = pd.DataFrame({
+#         "moneyness": m_grid,
+#         "log_moneyness": k_grid,
+#         "implied_vol": iv_grid,
+#         "total_variance": total_variance_grid,
+#         "m_obs_min": m_min_obs,
+#         "m_obs_max": m_max_obs,
+#         "k_obs_min": k_min_obs,
+#         "k_obs_max": k_max_obs,
+#         "flag_inside_observed_range": flag_inside,
+#         "flag_wing_clipped": flag_wing_clipped,
+#     })
+
+#     return smile
 
 
 
@@ -201,48 +207,44 @@ def interpolate_smile_slice(
     min_iv: float = 0.03,
     max_iv: float = 5.00,
     bc_type: str = "natural",
+    use_log_moneyness: bool = True,
 ) -> pd.DataFrame | None:
     """
-    Interpola una smile de IV en función de log-moneyness k = log(K/F).
+    Interpola una smile de IV en función de moneyness.
 
-    Parámetro principal: extrapolation_method
-    -----------------------------------------
-    "observed" : grid limitado al rango observado [k_min_obs, k_max_obs].
-                 Solo interpolación, sin extrapolación.
-                 Útil como sanity check o cuando no se necesita
-                 comparabilidad cross-sectional.
+    Parámetro principal: use_log_moneyness
+    ---------------------------------------
+    True  (default): spline sobre IV(k) con k = log(K/F), grilla uniforme en k.
+                     Asintóticamente más estable. Spacing variable en K.
 
-    "linear"   : grid global [log(global_moneyness_min), log(global_moneyness_max)].
-                 Extrapolación lineal en varianza total w(k) = sigma^2 * T
-                 más allá del rango observado, usando la derivada analítica
-                 del spline en el extremo. Pendientes clippeadas para
-                 garantizar monotonicidad de w en las alas
-                 (condición necesaria para no-arbitraje local, Lee 2004).
+    False           : spline sobre IV(m) con m = K/F, grilla uniforme en m.
+                      Spacing uniforme en K → segunda diferencia más estable
+                      para cálculo de gamma numérico.
 
-    "flat"     : grid global [log(global_moneyness_min), log(global_moneyness_max)].
-                 Extrapolación flat en varianza total: w(k) = w(k_obs_min)
-                 para k < k_obs_min, w(k) = w(k_obs_max) para k > k_obs_max.
-                 Garantiza butterfly no-arbitraje en las alas de forma trivial:
-                 con w' = 0 y w'' = 0, la condición de Gatheral (2004)
-                 g(k) = 1 > 0 se satisface en todo el dominio extrapolado.
-                 Recomendado para cálculo de griegas y momentos BKM.
+    Parámetro: extrapolation_method
+    --------------------------------
+    "observed" : grilla limitada al rango observado. Sin extrapolación.
+    "linear"   : extrapolación lineal en varianza total w = sigma^2 * T
+                 con pendiente analítica del spline. Pendientes clippeadas
+                 para garantizar monotonicidad de w (Lee 2004).
+    "flat"     : extrapolación flat en varianza total. Garantiza butterfly
+                 no-arbitraje trivialmente: g(k)=1>0 (Gatheral-Jacquier 2014).
 
     Parameters
     ----------
-    df_slice             : slice de opciones para una fecha/vencimiento.
-                           Columnas requeridas: Moneyness, ImpliedVolatility, Days.
-    n_grid               : número de puntos del grid.
+    df_slice             : columnas requeridas: Moneyness, ImpliedVolatility, Days
+    n_grid               : puntos del grid
     extrapolation_method : "observed" | "linear" | "flat"
-    global_moneyness_min : extremo inferior del grid global (solo linear/flat).
-    global_moneyness_max : extremo superior del grid global (solo linear/flat).
-    min_nodes            : número mínimo de nodos distintos para interpolar.
-    min_iv               : suelo económico de IV (default 3%).
-    max_iv               : techo defensivo de IV (default 500%).
-    bc_type              : condición de frontera del CubicSpline.
-                           "natural"    → segunda derivada cero en extremos
-                                          (conservador, estable en borders).
-                           "not-a-knot" → tercera derivada continua en
-                                          primeros y últimos nodos interiores.
+    global_moneyness_min : extremo inferior del grid global
+    global_moneyness_max : extremo superior del grid global
+    min_nodes            : nodos mínimos para interpolar
+    min_iv               : suelo económico de IV (default 3%)
+    max_iv               : techo defensivo de IV (default 500%)
+    bc_type              : condición de frontera CubicSpline
+                           "natural"    → w''=0 en extremos (conservador)
+                           "not-a-knot" → tercera derivada continua en nodos interiores
+    use_log_moneyness    : True → spline en IV(k), grilla en k
+                           False → spline en IV(m), grilla en m
 
     Returns
     -------
@@ -250,10 +252,10 @@ def interpolate_smile_slice(
         moneyness, log_moneyness, implied_vol, total_variance,
         m_obs_min, m_obs_max, k_obs_min, k_obs_max,
         flag_inside_observed_range, flag_wing_clipped
-    None si no hay suficientes datos o el slice no pasa los filtros.
+    None si no hay suficientes datos.
     """
     # ------------------------------------------------------------------
-    # Validación y limpieza
+    # Validación
     # ------------------------------------------------------------------
     required_cols = {"Moneyness", "ImpliedVolatility", "Days"}
     missing = required_cols - set(df_slice.columns)
@@ -273,7 +275,7 @@ def interpolate_smile_slice(
     if df.empty:
         return None
 
-    # Agrupar duplicados de moneyness de forma robusta
+    # Agrupar duplicados de moneyness
     df = (
         df.groupby("Moneyness", as_index=False)
           .agg({"ImpliedVolatility": "median", "Days": "first"})
@@ -283,7 +285,7 @@ def interpolate_smile_slice(
 
     m  = df["Moneyness"].to_numpy(dtype=float)
     iv = df["ImpliedVolatility"].to_numpy(dtype=float)
-    k  = np.log(m)  # log-moneyness
+    k  = np.log(m)
 
     n_left  = np.sum(k < 0.0)
     n_right = np.sum(k > 0.0)
@@ -304,69 +306,88 @@ def interpolate_smile_slice(
     m_max_obs = float(m.max())
 
     # ------------------------------------------------------------------
-    # Spline sobre IV(k) dentro del rango observado
+    # Spline: en k (log-moneyness) o en m (moneyness lineal)
     # ------------------------------------------------------------------
-    interp = CubicSpline(k, iv, bc_type=bc_type, extrapolate=False)
+    if use_log_moneyness:
+        x_nodes = k          # nodos en log-moneyness
+        x_min_obs = k_min_obs
+        x_max_obs = k_max_obs
+    else:
+        x_nodes = m          # nodos en moneyness lineal
+        x_min_obs = m_min_obs
+        x_max_obs = m_max_obs
+
+    interp = CubicSpline(x_nodes, iv, bc_type=bc_type, extrapolate=False)
 
     # ------------------------------------------------------------------
     # Grid
     # ------------------------------------------------------------------
     if extrapolation_method == "observed":
-        k_grid = np.linspace(k_min_obs, k_max_obs, n_grid)
+        x_grid = np.linspace(x_min_obs, x_max_obs, n_grid)
     else:
-        # "linear" o "flat" — grid global
         if global_moneyness_min <= 0 or global_moneyness_max <= 0:
             raise ValueError("Los extremos globales de moneyness deben ser > 0.")
         if global_moneyness_min >= global_moneyness_max:
             raise ValueError("global_moneyness_min debe ser menor que global_moneyness_max.")
 
-        k_global_min = np.log(global_moneyness_min)
-        k_global_max = np.log(global_moneyness_max)
+        if use_log_moneyness:
+            x_global_min = np.log(global_moneyness_min)
+            x_global_max = np.log(global_moneyness_max)
+        else:
+            x_global_min = global_moneyness_min
+            x_global_max = global_moneyness_max
 
-        if k_global_min > k_min_obs or k_global_max < k_max_obs:
+        if x_global_min > x_min_obs or x_global_max < x_max_obs:
             raise ValueError(
                 "El grid global no contiene completamente el rango observado. "
                 f"Observado: [{m_min_obs:.4f}, {m_max_obs:.4f}] | "
                 f"Global: [{global_moneyness_min:.4f}, {global_moneyness_max:.4f}]"
             )
 
-        k_grid = np.linspace(k_global_min, k_global_max, n_grid)
+        x_grid = np.linspace(x_global_min, x_global_max, n_grid)
 
-    m_grid = np.exp(k_grid)
+    # Grilla siempre en ambos espacios
+    if use_log_moneyness:
+        k_grid = x_grid
+        m_grid = np.exp(k_grid)
+    else:
+        m_grid = x_grid
+        k_grid = np.log(m_grid)
 
     # Interpolación interior
-    iv_grid = interp(k_grid)
+    iv_grid = interp(x_grid)
 
     # ------------------------------------------------------------------
-    # Flags (se rellenan en el bloque de extrapolación si aplica)
+    # Flags
     # ------------------------------------------------------------------
-    flag_inside      = (k_grid >= k_min_obs) & (k_grid <= k_max_obs)
-    flag_wing_clipped = np.zeros(len(k_grid), dtype=bool)
+    if use_log_moneyness:
+        flag_inside = (k_grid >= k_min_obs) & (k_grid <= k_max_obs)
+    else:
+        flag_inside = (m_grid >= m_min_obs) & (m_grid <= m_max_obs)
+
+    flag_wing_clipped = np.zeros(len(x_grid), dtype=bool)
 
     # ------------------------------------------------------------------
     # Extrapolación en alas
     # ------------------------------------------------------------------
     if extrapolation_method in ("linear", "flat"):
-        w_obs     = iv ** 2 * T
-        left_mask  = k_grid < k_min_obs
-        right_mask = k_grid > k_max_obs
+        w_obs = iv ** 2 * T
+
+        if use_log_moneyness:
+            left_mask  = k_grid < k_min_obs
+            right_mask = k_grid > k_max_obs
+        else:
+            left_mask  = m_grid < m_min_obs
+            right_mask = m_grid > m_max_obs
 
         if extrapolation_method == "flat":
             # ----------------------------------------------------------
-            # FLAT en varianza total
-            # w(k) = w(k_obs_min) para k < k_obs_min
-            # w(k) = w(k_obs_max) para k > k_obs_max
-            #
-            # Con w' = 0 y w'' = 0, la condición de Gatheral (2004):
-            #   g(k) = (1 - k*w'/(2w))^2 - (w'^2/4)(1/w + 1/4) + w''/2
-            # se reduce a g(k) = 1 > 0 en todo el dominio extrapolado.
-            # Butterfly no-arbitraje garantizado de forma trivial.
+            # FLAT en varianza total — g(k)=1>0, butterfly free trivial
             # ----------------------------------------------------------
             if np.any(left_mask):
                 w_left = np.full(left_mask.sum(), w_obs[0])
                 w_left = np.clip(w_left, min_total_variance, max_total_variance)
                 iv_grid[left_mask] = np.sqrt(w_left / T)
-                # flat nunca clippa por definición, pero flag = False
 
             if np.any(right_mask):
                 w_right = np.full(right_mask.sum(), w_obs[-1])
@@ -375,49 +396,445 @@ def interpolate_smile_slice(
 
         else:
             # ----------------------------------------------------------
-            # LINEAL en varianza total
-            # Pendiente analítica del spline en el extremo, convertida
-            # de dIV/dk a dw/dk = 2 * sigma * T * dIV/dk.
-            # Pendientes clippeadas para garantizar monotonicidad de w:
-            #   - ala izquierda: slope <= 0  (w no crece hacia -inf)
-            #   - ala derecha:   slope >= 0  (w no decrece hacia +inf)
+            # LINEAL en varianza total con pendiente analítica del spline
+            # Conversión de dIV/dx a dw/dx:
+            #   use_log_moneyness: dw/dk = 2*sigma*T * dIV/dk
+            #   use_log_moneyness=False: dw/dm = 2*sigma*T * dIV/dm
+            # Clipping de pendientes para monotonicidad de w en alas
             # ----------------------------------------------------------
-            div_dk_left  = float(interp(k_min_obs, 1))
-            div_dk_right = float(interp(k_max_obs, 1))
+            div_dx_left  = float(interp(x_min_obs, 1))
+            div_dx_right = float(interp(x_max_obs, 1))
 
-            slope_left_w  = min(2.0 * iv[0]  * T * div_dk_left,  0.0)
-            slope_right_w = max(2.0 * iv[-1] * T * div_dk_right, 0.0)
+            slope_left_w  = min(2.0 * iv[0]  * T * div_dx_left,  0.0)
+            slope_right_w = max(2.0 * iv[-1] * T * div_dx_right, 0.0)
 
             if np.any(left_mask):
-                w_left = w_obs[0] + slope_left_w * (k_grid[left_mask] - k_min_obs)
+                w_left = w_obs[0] + slope_left_w * (x_grid[left_mask] - x_min_obs)
                 clipped_left = w_left <= min_total_variance
                 w_left = np.clip(w_left, min_total_variance, max_total_variance)
                 iv_grid[left_mask] = np.sqrt(w_left / T)
                 flag_wing_clipped[left_mask] = clipped_left
 
             if np.any(right_mask):
-                w_right = w_obs[-1] + slope_right_w * (k_grid[right_mask] - k_max_obs)
+                w_right = w_obs[-1] + slope_right_w * (x_grid[right_mask] - x_max_obs)
                 clipped_right = w_right <= min_total_variance
                 w_right = np.clip(w_right, min_total_variance, max_total_variance)
                 iv_grid[right_mask] = np.sqrt(w_right / T)
                 flag_wing_clipped[right_mask] = clipped_right
 
-    # Suelo/techo numérico final sobre toda la grilla
+    # Suelo/techo final
     iv_grid = np.clip(iv_grid, min_iv, max_iv)
 
     return pd.DataFrame({
-        "moneyness":                m_grid,
-        "log_moneyness":            k_grid,
-        "implied_vol":              iv_grid,
-        "total_variance":           iv_grid ** 2 * T,
-        "m_obs_min":                m_min_obs,
-        "m_obs_max":                m_max_obs,
-        "k_obs_min":                k_min_obs,
-        "k_obs_max":                k_max_obs,
+        "moneyness":                  m_grid,
+        "log_moneyness":              k_grid,
+        "implied_vol":                iv_grid,
+        "total_variance":             iv_grid ** 2 * T,
+        "m_obs_min":                  m_min_obs,
+        "m_obs_max":                  m_max_obs,
+        "k_obs_min":                  k_min_obs,
+        "k_obs_max":                  k_max_obs,
         "flag_inside_observed_range": flag_inside,
-        "flag_wing_clipped":        flag_wing_clipped,
+        "flag_wing_clipped":          flag_wing_clipped,
     })
 
+
+
+####################################
+# Nueva versión con Shimko
+####################################
+
+def interpolate_smile_slice(
+    df_slice: pd.DataFrame,
+    n_grid: int = 100,
+    extrapolation_method: Literal["observed", "linear", "flat"] = "flat",
+    global_moneyness_min: float = 0.3,
+    global_moneyness_max: float = 1.7,
+    min_nodes: int = 5,
+    min_iv: float = 0.03,
+    max_iv: float = 5.00,
+    bc_type: str = "natural",
+    use_log_moneyness: bool = True,
+    smoothing_method: Literal["spline", "shimko"] = "spline",
+    shimko_degree: int = 4,
+) -> pd.DataFrame | None:
+    """
+    Interpola una smile de IV en función de moneyness.
+
+    Parámetro principal: smoothing_method
+    ---------------------------------------
+    "spline" (default):
+        CubicSpline sobre IV(k) o IV(m) según use_log_moneyness.
+        Interpolación exacta en los nodos observados.
+
+    "shimko":
+        Ajuste polinomial OLS de grado shimko_degree sobre IV(m)
+        en la zona observada únicamente (Shimko 1993).
+        Fuera del rango observado: extrapolación flat en varianza
+        total w = sigma^2 * T (Gatheral-Jacquier 2014).
+
+        Ventajas sobre spline:
+        - Suavizado (no interpola exactamente en cada nodo) → menos
+          sensible a outliers de IV en strikes poco líquidos
+        - Derivadas analíticas exactas: dsigma/dm = poly'(m)/1
+          disponibles desde los coeficientes → gamma analítica
+          en greeks.py sin diferencias finitas
+
+        Nota: use_log_moneyness se ignora cuando smoothing_method="shimko"
+        porque Shimko (1993) trabaja en moneyness lineal m = K/F.
+
+    Parámetro: extrapolation_method
+    --------------------------------
+    Solo aplica cuando smoothing_method="spline".
+    Con smoothing_method="shimko" la extrapolación es siempre flat.
+
+    Parameters
+    ----------
+    df_slice             : columnas requeridas: Moneyness, ImpliedVolatility, Days
+    n_grid               : puntos del grid
+    extrapolation_method : "observed" | "linear" | "flat" (solo para spline)
+    global_moneyness_min : extremo inferior del grid global
+    global_moneyness_max : extremo superior del grid global
+    min_nodes            : nodos mínimos para interpolar
+    min_iv               : suelo económico de IV (default 3%)
+    max_iv               : techo defensivo de IV (default 500%)
+    bc_type              : condición de frontera CubicSpline (solo para spline)
+    use_log_moneyness    : True → spline en IV(k); False → spline en IV(m)
+                           ignorado cuando smoothing_method="shimko"
+    smoothing_method     : "spline" | "shimko"
+    shimko_degree        : grado del polinomio Shimko (default 4)
+
+    Returns
+    -------
+    pd.DataFrame con columnas:
+        moneyness, log_moneyness, implied_vol, total_variance,
+        m_obs_min, m_obs_max, k_obs_min, k_obs_max,
+        flag_inside_observed_range, flag_wing_clipped,
+        -- solo con shimko --
+        shimko_coef       : coeficientes del polinomio [a0, a1, ..., an]
+        dsigma_dm         : d_sigma/dm analítica desde el polinomio
+        d2sigma_dm2       : d²_sigma/dm² analítica desde el polinomio
+    None si no hay suficientes datos.
+    """
+    # ------------------------------------------------------------------
+    # Validación
+    # ------------------------------------------------------------------
+    required_cols = {"Moneyness", "ImpliedVolatility", "Days"}
+    missing = required_cols - set(df_slice.columns)
+    if missing:
+        raise ValueError(f"Faltan columnas requeridas: {missing}")
+
+    if smoothing_method not in ("spline", "shimko"):
+        raise ValueError(
+            f"smoothing_method debe ser 'spline' o 'shimko'. "
+            f"Recibido: '{smoothing_method}'"
+        )
+
+    if extrapolation_method not in ("observed", "linear", "flat"):
+        raise ValueError(
+            f"extrapolation_method debe ser 'observed', 'linear' o 'flat'. "
+            f"Recibido: '{extrapolation_method}'"
+        )
+
+    df = df_slice.copy()
+    df = df[np.isfinite(df["Moneyness"]) & np.isfinite(df["ImpliedVolatility"])]
+    df = df[(df["Moneyness"] > 0) & (df["ImpliedVolatility"] > 0)]
+
+    if df.empty:
+        return None
+
+    # Agrupar duplicados de moneyness
+    df = (
+        df.groupby("Moneyness", as_index=False)
+          .agg({"ImpliedVolatility": "median", "Days": "first"})
+          .sort_values("Moneyness")
+          .reset_index(drop=True)
+    )
+
+    m  = df["Moneyness"].to_numpy(dtype=float)
+    iv = df["ImpliedVolatility"].to_numpy(dtype=float)
+    k  = np.log(m)
+
+    n_left  = np.sum(k < 0.0)
+    n_right = np.sum(k > 0.0)
+
+    if len(k) < min_nodes or n_left < 2 or n_right < 2:
+        return None
+
+    T = float(df["Days"].iloc[0]) / 365.0
+    if not np.isfinite(T) or T <= 0:
+        return None
+
+    min_total_variance = (min_iv ** 2) * T
+    max_total_variance = (max_iv ** 2) * T
+
+    k_min_obs = float(k.min())
+    k_max_obs = float(k.max())
+    m_min_obs = float(m.min())
+    m_max_obs = float(m.max())
+
+    # ------------------------------------------------------------------
+    # Grid global
+    # ------------------------------------------------------------------
+    if global_moneyness_min <= 0 or global_moneyness_max <= 0:
+        raise ValueError("Los extremos globales de moneyness deben ser > 0.")
+    if global_moneyness_min >= global_moneyness_max:
+        raise ValueError("global_moneyness_min debe ser menor que global_moneyness_max.")
+
+    # ------------------------------------------------------------------
+    # RAMA SHIMKO
+    # ------------------------------------------------------------------
+    if smoothing_method == "shimko":
+        return _shimko_smile(
+            m=m, iv=iv, k=k, T=T,
+            m_min_obs=m_min_obs, m_max_obs=m_max_obs,
+            k_min_obs=k_min_obs, k_max_obs=k_max_obs,
+            global_moneyness_min=global_moneyness_min,
+            global_moneyness_max=global_moneyness_max,
+            n_grid=n_grid,
+            shimko_degree=shimko_degree,
+            min_iv=min_iv, max_iv=max_iv,
+            min_total_variance=min_total_variance,
+            max_total_variance=max_total_variance,
+        )
+
+    # ------------------------------------------------------------------
+    # RAMA SPLINE (comportamiento original)
+    # ------------------------------------------------------------------
+    if use_log_moneyness:
+        x_nodes   = k
+        x_min_obs = k_min_obs
+        x_max_obs = k_max_obs
+    else:
+        x_nodes   = m
+        x_min_obs = m_min_obs
+        x_max_obs = m_max_obs
+
+    interp = CubicSpline(x_nodes, iv, bc_type=bc_type, extrapolate=False)
+
+    if extrapolation_method == "observed":
+        x_grid = np.linspace(x_min_obs, x_max_obs, n_grid)
+    else:
+        if use_log_moneyness:
+            x_global_min = np.log(global_moneyness_min)
+            x_global_max = np.log(global_moneyness_max)
+        else:
+            x_global_min = global_moneyness_min
+            x_global_max = global_moneyness_max
+
+        if x_global_min > x_min_obs or x_global_max < x_max_obs:
+            raise ValueError(
+                "El grid global no contiene completamente el rango observado. "
+                f"Observado: [{m_min_obs:.4f}, {m_max_obs:.4f}] | "
+                f"Global: [{global_moneyness_min:.4f}, {global_moneyness_max:.4f}]"
+            )
+        x_grid = np.linspace(x_global_min, x_global_max, n_grid)
+
+    if use_log_moneyness:
+        k_grid = x_grid
+        m_grid = np.exp(k_grid)
+    else:
+        m_grid = x_grid
+        k_grid = np.log(m_grid)
+
+    iv_grid = interp(x_grid)
+
+    if use_log_moneyness:
+        flag_inside = (k_grid >= k_min_obs) & (k_grid <= k_max_obs)
+    else:
+        flag_inside = (m_grid >= m_min_obs) & (m_grid <= m_max_obs)
+
+    flag_wing_clipped = np.zeros(len(x_grid), dtype=bool)
+
+    if extrapolation_method in ("linear", "flat"):
+        w_obs      = iv ** 2 * T
+        left_mask  = ~flag_inside & (m_grid < m_min_obs)
+        right_mask = ~flag_inside & (m_grid > m_max_obs)
+
+        if extrapolation_method == "flat":
+            if np.any(left_mask):
+                w_left = np.clip(
+                    np.full(left_mask.sum(), w_obs[0]),
+                    min_total_variance, max_total_variance
+                )
+                iv_grid[left_mask] = np.sqrt(w_left / T)
+            if np.any(right_mask):
+                w_right = np.clip(
+                    np.full(right_mask.sum(), w_obs[-1]),
+                    min_total_variance, max_total_variance
+                )
+                iv_grid[right_mask] = np.sqrt(w_right / T)
+        else:
+            div_dx_left  = float(interp(x_min_obs, 1))
+            div_dx_right = float(interp(x_max_obs, 1))
+            slope_left_w  = min(2.0 * iv[0]  * T * div_dx_left,  0.0)
+            slope_right_w = max(2.0 * iv[-1] * T * div_dx_right, 0.0)
+
+            if np.any(left_mask):
+                w_left = w_obs[0] + slope_left_w * (x_grid[left_mask] - x_min_obs)
+                clipped = w_left <= min_total_variance
+                w_left  = np.clip(w_left, min_total_variance, max_total_variance)
+                iv_grid[left_mask]         = np.sqrt(w_left / T)
+                flag_wing_clipped[left_mask] = clipped
+
+            if np.any(right_mask):
+                w_right = w_obs[-1] + slope_right_w * (x_grid[right_mask] - x_max_obs)
+                clipped  = w_right <= min_total_variance
+                w_right  = np.clip(w_right, min_total_variance, max_total_variance)
+                iv_grid[right_mask]         = np.sqrt(w_right / T)
+                flag_wing_clipped[right_mask] = clipped
+
+    iv_grid = np.clip(iv_grid, min_iv, max_iv)
+
+    return pd.DataFrame({
+        "moneyness":                  m_grid,
+        "log_moneyness":              k_grid,
+        "implied_vol":                iv_grid,
+        "total_variance":             iv_grid ** 2 * T,
+        "m_obs_min":                  m_min_obs,
+        "m_obs_max":                  m_max_obs,
+        "k_obs_min":                  k_min_obs,
+        "k_obs_max":                  k_max_obs,
+        "flag_inside_observed_range": flag_inside,
+        "flag_wing_clipped":          flag_wing_clipped,
+    })
+
+
+# =============================================================================
+# Rama Shimko
+# =============================================================================
+
+def _shimko_smile(
+    m: np.ndarray,
+    iv: np.ndarray,
+    k: np.ndarray,
+    T: float,
+    m_min_obs: float,
+    m_max_obs: float,
+    k_min_obs: float,
+    k_max_obs: float,
+    global_moneyness_min: float,
+    global_moneyness_max: float,
+    n_grid: int,
+    shimko_degree: int,
+    min_iv: float,
+    max_iv: float,
+    min_total_variance: float,
+    max_total_variance: float,
+) -> pd.DataFrame | None:
+    """
+    Ajuste polinomial Shimko (1993) sobre IV(m) en zona observada.
+    Extrapolación flat en varianza total fuera del rango observado.
+
+    sigma(m) = sum_{j=0}^{d} a_j * m^j
+
+    Derivadas analíticas:
+        d_sigma/dm   = sum_{j=1}^{d} j * a_j * m^{j-1}
+        d²_sigma/dm² = sum_{j=2}^{d} j*(j-1) * a_j * m^{j-2}
+
+    Estas derivadas permiten calcular gamma analíticamente en greeks.py
+    sin diferencias finitas.
+    """
+    # ------------------------------------------------------------------
+    # Ajuste OLS del polinomio sobre zona observada
+    # ------------------------------------------------------------------
+    # Centrar moneyness en ATM (m=1) para mejorar el condicionamiento
+    # numérico del sistema de ecuaciones normales
+    m_center = 1.0
+    m_c = m - m_center
+
+    try:
+        coef = np.polyfit(m_c, iv, shimko_degree)  # coef[0] es el de mayor grado
+    except (np.linalg.LinAlgError, ValueError):
+        return None
+
+    # Verificar que el ajuste es razonable
+    iv_fitted = np.polyval(coef, m_c)
+    rmse_fit  = np.sqrt(np.mean((iv_fitted - iv)**2))
+
+    # Si el RMSE del ajuste es muy alto (>5 vol points), el polinomio
+    # no está capturando bien la smile — devolver None
+    if rmse_fit > 0.05:
+        return None
+
+    # ------------------------------------------------------------------
+    # Grid global en moneyness lineal
+    # ------------------------------------------------------------------
+    m_grid = np.linspace(global_moneyness_min, global_moneyness_max, n_grid)
+    k_grid = np.log(m_grid)
+    m_c_grid = m_grid - m_center
+
+    # ------------------------------------------------------------------
+    # Evaluar polinomio en toda la grilla
+    # ------------------------------------------------------------------
+    iv_grid = np.polyval(coef, m_c_grid)
+
+    # ------------------------------------------------------------------
+    # Flag zona observada
+    # ------------------------------------------------------------------
+    flag_inside      = (m_grid >= m_min_obs) & (m_grid <= m_max_obs)
+    flag_wing_clipped = np.zeros(n_grid, dtype=bool)
+
+    # ------------------------------------------------------------------
+    # Extrapolación flat en varianza total fuera del rango observado
+    # El polinomio puede divergir fuera de la zona de ajuste —
+    # sustituimos por flat en w para garantizar no-arbitraje en las alas
+    # ------------------------------------------------------------------
+    w_obs = iv ** 2 * T
+    w_at_left  = float(np.polyval(coef, m_min_obs - m_center))**2 * T
+    w_at_right = float(np.polyval(coef, m_max_obs - m_center))**2 * T
+
+    # Usar el mínimo entre el valor del polinomio en el borde y w observada
+    # para evitar discontinuidades en la unión
+    w_left_flat  = np.clip(w_at_left,  min_total_variance, max_total_variance)
+    w_right_flat = np.clip(w_at_right, min_total_variance, max_total_variance)
+
+    left_mask  = ~flag_inside & (m_grid < m_min_obs)
+    right_mask = ~flag_inside & (m_grid > m_max_obs)
+
+    if np.any(left_mask):
+        iv_grid[left_mask] = np.sqrt(w_left_flat / T)
+
+    if np.any(right_mask):
+        iv_grid[right_mask] = np.sqrt(w_right_flat / T)
+
+    # ------------------------------------------------------------------
+    # Suelo/techo de IV
+    # ------------------------------------------------------------------
+    iv_grid = np.clip(iv_grid, min_iv, max_iv)
+
+    # ------------------------------------------------------------------
+    # Derivadas analíticas del polinomio en toda la grilla
+    # Solo válidas dentro del rango observado — fuera son las derivadas
+    # del flat (cero) pero las calculamos igualmente para consistencia
+    # ------------------------------------------------------------------
+    # Derivada del polinomio: si p(x) = sum a_j x^j
+    # p'(x) = sum j * a_j * x^{j-1}  → np.polyder
+    coef_d1 = np.polyder(coef, 1)   # primera derivada
+    coef_d2 = np.polyder(coef, 2)   # segunda derivada
+
+    dsigma_dm   = np.polyval(coef_d1, m_c_grid)
+    d2sigma_dm2 = np.polyval(coef_d2, m_c_grid)
+
+    # Fuera del rango observado, derivadas = 0 (flat)
+    dsigma_dm[left_mask | right_mask]   = 0.0
+    d2sigma_dm2[left_mask | right_mask] = 0.0
+
+    return pd.DataFrame({
+        "moneyness":                  m_grid,
+        "log_moneyness":              k_grid,
+        "implied_vol":                iv_grid,
+        "total_variance":             iv_grid ** 2 * T,
+        "m_obs_min":                  m_min_obs,
+        "m_obs_max":                  m_max_obs,
+        "k_obs_min":                  k_min_obs,
+        "k_obs_max":                  k_max_obs,
+        "flag_inside_observed_range": flag_inside,
+        "flag_wing_clipped":          flag_wing_clipped,
+        "shimko_rmse":                rmse_fit,
+        "dsigma_dm":                  dsigma_dm,
+        "d2sigma_dm2":                d2sigma_dm2,
+    })
 # In[]:
 
 surface_slices = []
@@ -426,12 +843,19 @@ for (date, expiry), df_slice in quoted_option.groupby(["Date", "Expiration"]):
 
     smile = interpolate_smile_slice(
     df_slice,
-    n_grid=100,
-    extrapolation_method="flat",   # o "linear" o "observed"
+    n_grid=200,
+    smoothing_method="shimko",   # ← activa Shimko
+    shimko_degree=4,
     global_moneyness_min=0.3,
     global_moneyness_max=1.7,
-    bc_type="natural",
 )
+
+#     smile = interpolate_smile_slice(
+#     df_slice,
+#     n_grid=300,
+#     extrapolation_method="linear",   #  "flat ", "linear" o "observed"
+#     use_log_moneyness=True
+# )
 
     if smile is None:
         continue
@@ -461,7 +885,7 @@ for (date, expiry), df_slice in quoted_option.groupby(["Date", "Expiration"]):
 
 x = pd.concat(surface_slices, ignore_index=True)
 
-PARQET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface.parquet"
+PARQET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_shimko.parquet"
 duckdb.from_df(x).write_parquet(PARQET_OUTPUT, compression='snappy')
 
 
