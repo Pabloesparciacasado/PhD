@@ -18,7 +18,7 @@ import duckdb
 atm_band = 0.015  # ±1% alrededor de ATM
 con = duckdb.connect()
 raw_df_clean = con.execute("""SELECT *
-FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_greeks_shimko_3.parquet')
+FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_greeks_shimko_2.parquet')
 """).df()
 raw_df_clean["Date"] = pd.to_datetime(raw_df_clean["Date"])
 raw_df_clean = raw_df_clean[['Date', 'Days','moneyness',
