@@ -123,27 +123,27 @@ print(df_merged)
 print(f"\nObsColumnas ervaciones en muestra común: {df_merged.columns}")
 # In[]
 # ============================================================
-# 3. ESTADÍSTICOS: delta_atm vs delta_om
+# 3.1. ESTADÍSTICOS: gamma_bs_atm vs gamma_om
 # ============================================================
-df = df_merged.dropna(subset=["delta_bs_atm", "delta_om"])
+df = df_merged.dropna(subset=["gamma_bs_atm", "gamma_om"])
 
-corr_pearson, p_pearson = stats.pearsonr(df["delta_bs_atm"], df["delta_om"])
-corr_spearman, _        = stats.spearmanr(df["delta_bs_atm"], df["delta_om"])
+corr_pearson, p_pearson = stats.pearsonr(df["gamma_bs_atm"], df["gamma_om"])
+corr_spearman, _        = stats.spearmanr(df["gamma_bs_atm"], df["gamma_om"])
 
 slope, intercept, r_value, p_value, std_err = stats.linregress(
-    df["delta_om"], df["delta_bs_atm"]
+    df["gamma_om"], df["gamma_bs_atm"]
 )
-rmse = np.sqrt(np.mean((df["delta_bs_atm"] - df["delta_om"])**2))
-mae  = np.mean(np.abs(df["delta_bs_atm"] - df["delta_om"]))
-bias = np.mean(df["delta_bs_atm"] - df["delta_om"])
+rmse = np.sqrt(np.mean((df["gamma_bs_atm"] - df["gamma_om"])**2))
+mae  = np.mean(np.abs(df["gamma_bs_atm"] - df["gamma_om"]))
+bias = np.mean(df["gamma_bs_atm"] - df["gamma_om"])
 
 print("\n" + "=" * 55)
-print("ESTADÍSTICOS GLOBALES: delta_bs_atm vs delta_om")
+print("ESTADÍSTICOS GLOBALES: gamma_bs_atm vs gamma_om")
 print("=" * 55)
 print(f"  Observaciones        : {len(df):,}")
 print(f"  Correlación Pearson  : {corr_pearson:.4f}  (p={p_pearson:.2e})")
 print(f"  Correlación Spearman : {corr_spearman:.4f}")
-print(f"  OLS: delta_bs_atm = {intercept:.4f} + {slope:.4f} * delta_om")
+print(f"  OLS: gamma_bs_atm = {intercept:.6f} + {slope:.4f} * gamma_om")
 print(f"  R²                   : {r_value**2:.4f}")
 print(f"  RMSE                 : {rmse:.6f}")
 print(f"  MAE                  : {mae:.6f}")
@@ -151,3 +151,108 @@ print(f"  MAE                  : {mae:.6f}")
 print("=" * 55)
 
 # %%
+
+# ============================================================
+# 3.2. TABLA POR AÑO
+# ============================================================
+
+rows_year = []
+for year, grp in df.groupby("year"):
+    if len(grp) < 5:
+        continue
+    c_p, _  = stats.pearsonr(grp["gamma_bs_atm"], grp["gamma_om"])
+    s, i, r, _, _ = stats.linregress(grp["gamma_om"], grp["gamma_bs_atm"])
+    rmse_y  = np.sqrt(np.mean((grp["gamma_bs_atm"] - grp["gamma_om"])**2))
+    rows_year.append({
+        "Año":            year,
+        "N":              len(grp),
+        "Corr":           round(c_p, 3),
+        "R²":             round(r**2, 3),
+        "Alpha":          round(i, 6),
+        "Beta":           round(s, 4),
+        "RMSE":           round(rmse_y, 6),
+        "gamma_bs_mean":  round(grp["gamma_bs_atm"].mean(), 6),
+        "gamma_om_mean":  round(grp["gamma_om"].mean(), 6),
+    })
+
+by_year = pd.DataFrame(rows_year)
+print("\n" + "=" * 85)
+print("TABLA POR AÑO: gamma_bs_atm vs gamma_om")
+print("=" * 85)
+print(by_year.to_string(index=False))
+print("=" * 85)
+
+# ============================================================
+# 3.3. PLOTS
+# ============================================================
+
+fig = plt.figure(figsize=(18, 14))
+gs  = gridspec.GridSpec(3, 2, figure=fig, hspace=0.4, wspace=0.3)
+
+# ---- Panel 1: Serie temporal ----
+ax1 = fig.add_subplot(gs[0, :])
+ax1.plot(df["Date"], df["gamma_bs_atm"], "b-",  lw=1, alpha=0.8, label="Gamma BS ATM (superficie)")
+ax1.plot(df["Date"], df["gamma_om"],     "r--", lw=1, alpha=0.8, label="Gamma OptionMetrics")
+ax1.set_title("Gamma BS ATM vs Gamma OM — Serie temporal", fontsize=11, fontweight="bold")
+ax1.set_ylabel("Gamma")
+ax1.legend()
+ax1.grid(alpha=0.3)
+
+# ---- Panel 2: Scatter global ----
+ax2 = fig.add_subplot(gs[1, 0])
+ax2.scatter(df["gamma_om"], df["gamma_bs_atm"],
+            alpha=0.15, s=5, color="steelblue")
+x_line = np.linspace(df["gamma_om"].min(), df["gamma_om"].max(), 100)
+ax2.plot(x_line, intercept + slope * x_line,
+         "r-", lw=2, label=f"OLS: α={intercept:.6f}, β={slope:.4f}")
+ax2.plot(x_line, x_line, "k--", lw=1, alpha=0.5, label="45° (perfecto)")
+ax2.set_xlabel("Gamma OptionMetrics")
+ax2.set_ylabel("Gamma BS ATM (superficie)")
+ax2.set_title(f"Scatter global  |  R²={r_value**2:.3f}  |  Corr={corr_pearson:.3f}",
+              fontsize=9)
+ax2.legend(fontsize=8)
+ax2.grid(alpha=0.3)
+
+# ---- Panel 3: Diferencia (gamma_bs_atm - gamma_om) ----
+ax3 = fig.add_subplot(gs[1, 1])
+diff = df["gamma_bs_atm"] - df["gamma_om"]
+ax3.plot(df["Date"], diff, "purple", lw=0.8, alpha=0.7)
+ax3.axhline(0,            color="black", lw=1,   ls="--")
+ax3.axhline(diff.mean(),  color="red",   lw=1.5, ls="--",
+            label=f"Media = {diff.mean():.6f}")
+ax3.fill_between(df["Date"], diff, 0,
+                 where=diff > 0, alpha=0.15, color="red")
+ax3.fill_between(df["Date"], diff, 0,
+                 where=diff < 0, alpha=0.15, color="blue")
+ax3.set_title("Diferencia Gamma BS ATM − Gamma OM", fontsize=9)
+ax3.set_ylabel("Diferencia (gamma)")
+ax3.legend(fontsize=8)
+ax3.grid(alpha=0.3)
+
+# ---- Panel 4: Correlación por año ----
+ax4 = fig.add_subplot(gs[2, 0])
+ax4.bar(by_year["Año"], by_year["Corr"],
+        color="steelblue", alpha=0.7, edgecolor="white")
+ax4.axhline(corr_pearson, color="red", ls="--", lw=1.5,
+            label=f"Global = {corr_pearson:.3f}")
+ax4.set_ylim(0, 1.05)
+ax4.set_title("Correlación Pearson por año", fontsize=9)
+ax4.set_ylabel("Correlación")
+ax4.legend(fontsize=8)
+ax4.grid(alpha=0.3, axis="y")
+
+# ---- Panel 5: RMSE por año ----
+ax5 = fig.add_subplot(gs[2, 1])
+ax5.bar(by_year["Año"], by_year["RMSE"],
+        color="tomato", alpha=0.7, edgecolor="white")
+ax5.axhline(rmse, color="black", ls="--", lw=1.5,
+            label=f"Global = {rmse:.6f}")
+ax5.set_title("RMSE por año", fontsize=9)
+ax5.set_ylabel("RMSE")
+ax5.legend(fontsize=8)
+ax5.grid(alpha=0.3, axis="y")
+
+plt.suptitle("Validación: Gamma BS ATM (superficie) vs Gamma OptionMetrics",
+             fontsize=13, fontweight="bold", y=1.01)
+plt.tight_layout()
+plt.show()

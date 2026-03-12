@@ -22,7 +22,7 @@ import matplotlib.gridspec as gridspec
 import yfinance as yf
 from scipy import stats
 import duckdb
-
+ 
 # ============================================================
 # 1. CARGAR SUPERFICIE LIMPIA
 # ============================================================
