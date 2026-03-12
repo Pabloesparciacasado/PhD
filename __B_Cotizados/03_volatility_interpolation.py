@@ -669,7 +669,7 @@ for (date, expiry), df_slice in quoted_option.groupby(["Date", "Expiration"]):
     df_slice,
     n_grid=200,
     smoothing_method="shimko",   # ← activa Shimko
-    shimko_degree=4,
+    shimko_degree=3,
     global_moneyness_min=0.3,
     global_moneyness_max=1.7,
 )
@@ -709,7 +709,7 @@ for (date, expiry), df_slice in quoted_option.groupby(["Date", "Expiration"]):
 
 x = pd.concat(surface_slices, ignore_index=True)
 
-PARQET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_shimko.parquet"
+PARQET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_shimko_3.parquet"
 duckdb.from_df(x).write_parquet(PARQET_OUTPUT, compression='snappy')
 
 

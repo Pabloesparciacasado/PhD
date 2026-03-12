@@ -43,8 +43,8 @@ from pathlib import Path
 # CONFIG
 # ============================================================
 
-PATH_PRICES = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_precios_limpio_spline.parquet"
-PATH_GREEKS = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks.parquet"
+PATH_PRICES = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_precios_limpio_shimko_3.parquet"
+PATH_GREEKS = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks_shimko_3.parquet"
 
 OUT_DIR = Path(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output")
 OUT_DIR.mkdir(parents=True, exist_ok=True)

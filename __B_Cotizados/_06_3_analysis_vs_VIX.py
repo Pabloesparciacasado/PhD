@@ -31,7 +31,7 @@ con = duckdb.connect()
 
 df_clean = con.execute("""
 SELECT *
-FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_30_B.parquet')
+FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_30_flat_natural.parquet')
 """).df()
 
 df_clean["Date"] = pd.to_datetime(df_clean["Date"])
@@ -39,11 +39,11 @@ df_clean["Date"] = pd.to_datetime(df_clean["Date"])
 # ============================================================
 # 2. EXTRAER IV ATM POR FECHA
 # ============================================================
-# ATM: punto de la grilla más cercano a moneyness = 1
+# ATM: punto de la grid más cercano a moneyness = 1
 # Usamos calls para consistencia (puts dan el mismo resultado
 # por put-call parity en ATM)
 
-atm_band = 0.02  # ±2% alrededor de ATM
+atm_band = 0.01  # ±1% alrededor de ATM
 
 atm_iv = (
     df_clean[

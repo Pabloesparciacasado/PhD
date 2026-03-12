@@ -10,7 +10,7 @@ con = duckdb.connect()
 
 vol_surface = con.execute("""
 SELECT *
-FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_shimko.parquet')
+FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_shimko_3.parquet')
 """).df()
 
 print(vol_surface.columns)
@@ -402,7 +402,7 @@ print(f"Duplicados finales Date×moneyness×CallPut: {dup_final}")
 # 11. GUARDAR
 # ============================================================
 
-PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_30.parquet"
+PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_30_shimko_3.parquet"
 duckdb.from_df(surface_30_final).write_parquet(PARQUET_OUTPUT, compression="snappy")
 
 print("Generada la superficie de volatilidad estandarizada a 30 días con éxito")

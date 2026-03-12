@@ -16,7 +16,7 @@ con = duckdb.connect()
 
 vol_surface = con.execute("""
 SELECT *
-FROM read_parquet("C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_30_shimko.parquet")
+FROM read_parquet("C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_30_shimko_3.parquet")
 """).df()
 
 #### Aplicamos BSM para mapear las volatilidades a precios de opciones. #####
@@ -26,7 +26,7 @@ resultado_europeo = model.price_BS_general(vol_surface)
 resultado_europeo = resultado_europeo.rename(columns={"BS_Price": "Precio_Modelo"})
 
 
-PARQET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_precios.parquet"
+PARQET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_precios_shimko_3.parquet"
 duckdb.from_df(resultado_europeo).write_parquet(PARQET_OUTPUT, compression='snappy')
 
 

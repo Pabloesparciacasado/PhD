@@ -33,8 +33,8 @@ BASE_DIR = Path(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output")
 PLOTS_DIR = BASE_DIR / "plots_validation"
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-PATH_PRICES = BASE_DIR / "superficie_con_precios_limpio.parquet"
-PATH_GREEKS = BASE_DIR / "superficie_con_greeks.parquet"
+PATH_PRICES = BASE_DIR / "superficie_con_precios_limpio_spline.parquet"
+PATH_GREEKS = BASE_DIR / "superficie_con_greeks_spline.parquet"
 
 PATH_SHAPE_SUMMARY = BASE_DIR / "valid_check_shape_summary.csv"
 PATH_RND_BAD = BASE_DIR / "valid_check_rnd_bad_points.csv"
