@@ -1,6 +1,11 @@
+
+
+### 06.4 Analizamos los métodos de interpolación Shimko(1993) con polinomio 4 vs spline (natural)
+
+### Comparación de griegas desde el fichero std_option (ATM),(ver si desde el de vol_surface puedo ampliar a más strikes el std_option).
+
+
 """
-compare_surfaces.py
-===================
 Comparación entre superficie con spline natural y superficie con
 Shimko polinomio grado 4.
 

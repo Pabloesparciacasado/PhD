@@ -3,8 +3,8 @@
 ### 06.01-> Aquí quiero ver el tema de las maturities que dejo fuera en el filtrado de moneyness en 01 porque me quiero centrar entorno a 30 días
 
 ### Quiero ver también si se incumple algún punto el arbitraje del conjunto creado en 04 
-### Comparación de griegas desde el fichero std_option (ATM),(ver si desde el de vol_surface puedo ampliar a más strikes el std_option).
 ### Analizar si las griegas obtenidas en 04 tienen sentido.
+### Comparación de griegas desde el fichero std_option (ATM),(ver si desde el de vol_surface puedo ampliar a más strikes el std_option).
 
 # In[]
 import pandas as pd

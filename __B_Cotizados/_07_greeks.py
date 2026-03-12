@@ -1,6 +1,5 @@
+
 """
-greeks.py
-=========
 Cálculo de Delta, Vega y Gamma siguiendo Bates (2005)
 "Hedging the Smirk", ecuaciones (6) y (7).
 """

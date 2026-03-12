@@ -76,7 +76,7 @@ En esta primera fase quedan pendientes decisiones sobre:
 ## Fase 2:
 
 -Importamos los datos de opciones cotizados limpiados.
-
+s
 -Para construir la superficie en continuo, me quedo con las opciones OTM (call-put)
 
 *Función de interpolación de volatilidad*
@@ -85,4 +85,3 @@ Cómo es estandar, se usa el método de interpolación cubic-spline. en este cas
 -2: Reviso duplicados,
 -3: aplicamos la función de interpolación de scipy,
 Y temporalemente las funciones para extrapolar las wings. 
-![alt text](image.png)

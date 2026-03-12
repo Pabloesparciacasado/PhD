@@ -1,13 +1,12 @@
 
 
-### 06.02-> Quiero ver también si se incumple algún punto el arbitraje del conjunto creado en 04 
+### 06.02-> Quiero ver también si se incumple algún punto el arbitraje del conjunto creado en 04 y limpiamos
+
+### Analizar si las griegas obtenidas en 07 tienen sentido, comparando con VIX, y bajo supuestos de Gatheral(2004) y Breeden-Liztenberg(1978).
 ### Comparación de griegas desde el fichero std_option (ATM),(ver si desde el de vol_surface puedo ampliar a más strikes el std_option).
-### Analizar si las griegas obtenidas en 04 tienen sentido.
 
 # In[]
 """
-surface_analysis.py
-===================
 Pipeline de diagnóstico y limpieza de la superficie de volatilidad
 estandarizada a madurez fija (ej. 30 días).
 

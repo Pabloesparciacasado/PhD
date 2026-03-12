@@ -28,8 +28,8 @@ Date,Days,CallPut,n_points,n_mono_viol,n_conv_viol,n_conv_interp,n_conv_extrap,f
 2006-11-15,30,C,15,3,0,0,0,False,True,True,True
 2006-12-20,30,P,28,1,0,0,0,False,True,True,True
 2007-01-17,30,P,26,2,0,0,0,False,True,True,True
-2007-02-27,30,C,10,0,1,1,0,True,False,False,True
-2007-02-27,30,P,3,0,1,1,0,True,False,False,True
+2007-02-27,30,C,10,0,1,0,0,True,False,True,True
+2007-02-27,30,P,3,0,1,0,0,True,False,True,True
 2007-04-18,30,P,36,4,0,0,0,False,True,True,True
 2007-08-22,30,P,55,4,0,0,0,False,True,True,True
 2007-11-21,30,P,47,2,0,0,0,False,True,True,True
@@ -583,7 +583,7 @@ Date,Days,CallPut,n_points,n_mono_viol,n_conv_viol,n_conv_interp,n_conv_extrap,f
 2017-12-08,30,P,38,5,0,0,0,False,True,True,True
 2017-12-11,30,P,35,4,0,0,0,False,True,True,True
 2017-12-13,30,P,46,1,0,0,0,False,True,True,True
-2017-12-18,30,P,39,0,5,5,0,True,False,False,True
+2017-12-18,30,P,39,0,5,0,0,True,False,True,True
 2017-12-20,30,C,12,2,0,0,0,False,True,True,True
 2017-12-20,30,P,47,2,0,0,0,False,True,True,True
 2017-12-26,30,P,36,2,0,0,0,False,True,True,True
@@ -977,7 +977,8 @@ Date,Days,CallPut,n_points,n_mono_viol,n_conv_viol,n_conv_interp,n_conv_extrap,f
 2022-09-28,30,C,41,2,0,0,0,False,True,True,True
 2022-10-05,30,C,38,2,0,0,0,False,True,True,True
 2022-10-19,30,C,56,3,0,0,0,False,True,True,True
-2022-11-10,30,P,52,0,1,1,0,True,False,False,True
+2022-11-10,30,C,46,14,0,0,0,False,True,True,True
+2022-11-10,30,P,94,17,0,0,0,False,True,True,True
 2022-11-16,30,C,38,2,0,0,0,False,True,True,True
 2022-12-16,30,C,35,1,0,0,0,False,True,True,True
 2022-12-21,30,C,41,8,0,0,0,False,True,True,True
@@ -1051,7 +1052,7 @@ Date,Days,CallPut,n_points,n_mono_viol,n_conv_viol,n_conv_interp,n_conv_extrap,f
 2024-01-30,30,C,25,8,0,0,0,False,True,True,True
 2024-01-31,30,C,22,5,0,0,0,False,True,True,True
 2024-02-02,30,C,18,2,0,0,0,False,True,True,True
-2024-02-02,30,P,36,0,6,6,0,True,False,False,True
+2024-02-02,30,P,36,0,6,0,0,True,False,True,True
 2024-02-05,30,P,68,1,0,0,0,False,True,True,True
 2024-02-13,30,C,18,2,0,0,0,False,True,True,True
 2024-02-14,30,C,22,5,0,0,0,False,True,True,True

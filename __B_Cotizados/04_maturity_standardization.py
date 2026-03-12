@@ -402,7 +402,7 @@ print(f"Duplicados finales Date×moneyness×CallPut: {dup_final}")
 # 11. GUARDAR
 # ============================================================
 
-PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_30_B.parquet"
+PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_30.parquet"
 duckdb.from_df(surface_30_final).write_parquet(PARQUET_OUTPUT, compression="snappy")
 
 print("Generada la superficie de volatilidad estandarizada a 30 días con éxito")

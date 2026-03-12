@@ -1,6 +1,9 @@
+
+### 06.3 Analizar si las griegas obtenidas en 07 tienen sentido, comparando con VIX, y bajo supuestos de Gatheral(2004) y Breeden-Liztenberg(1978).
+
+### Comparación de griegas desde el fichero std_option (ATM),(ver si desde el de vol_surface puedo ampliar a más strikes el std_option).
+
 """
-vix_comparison.py
-=================
 Comparación de la IV ATM a 30 días de la superficie interpolada
 con el VIX oficial de CBOE.
 

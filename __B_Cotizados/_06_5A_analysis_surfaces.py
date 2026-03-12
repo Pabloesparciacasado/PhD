@@ -1,7 +1,4 @@
 """
-06_surface_valid_quant_checks.py
-================================
-
 Validación cuantitativa de la superficie 30d y de las griegas calculadas.
 
 Este script sustituye tests poco informativos o no válidos para una
@@ -46,7 +43,7 @@ from pathlib import Path
 # CONFIG
 # ============================================================
 
-PATH_PRICES = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_precios_limpio.parquet"
+PATH_PRICES = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_precios_limpio_spline.parquet"
 PATH_GREEKS = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks.parquet"
 
 OUT_DIR = Path(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output")
@@ -84,7 +81,7 @@ def robust_zscore(x: np.ndarray) -> np.ndarray:
     mad = np.nanmedian(np.abs(x - med))
     if not np.isfinite(mad) or mad < 1e-12:
         return np.zeros_like(x)
-    return (x - med) / (1.4826 * mad)
+    return (x - med) / (1.4826 * mad) 
 
 
 def smile_derivatives_K(
