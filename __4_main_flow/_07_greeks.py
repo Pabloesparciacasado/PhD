@@ -264,15 +264,19 @@ con = duckdb.connect()
 # Usa el fichero limpio, no el bruto
 suf_clean = con.execute("""
 SELECT *
-FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_precios_limpio_shimko_3.parquet')
+FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_precios_limpio_shimko_2.parquet')
 """).df()
 
 df_greeks = compute_greeks(suf_clean)
 check_df = check_greeks(df_greeks, verbose=True)
 
-PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks_shimko_3.parquet"
+PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks_shimko_2.parquet"
 duckdb.from_df(df_greeks).write_parquet(PARQUET_OUTPUT, compression='snappy')
 
 print("======================================================")
 print("Generada la superficie con griegas correctamente")
 print("======================================================")
+
+
+
+

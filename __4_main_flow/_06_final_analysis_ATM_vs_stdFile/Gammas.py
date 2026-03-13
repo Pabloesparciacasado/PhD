@@ -25,7 +25,7 @@ raw_df_clean = raw_df_clean[['Date', 'Days','moneyness',
        'log_moneyness', 'CallPut','implied_vol', 'Precio_Modelo', 'delta_bs', 'vega', 'gamma_bs', 'vanna_K',
        'volga', 'dsigma_dK', 'd2sigma_dK2', 'delta', 'gamma']]
 
-raw_df_clean = raw_df_clean[raw_df_clean["CallPut"] == "C"]
+raw_df_clean = raw_df_clean[raw_df_clean["CallPut"] == "P"]
 
 raw_df_NTM = raw_df_clean[
         (raw_df_clean["moneyness"] >= 1 - atm_band) &
@@ -53,31 +53,32 @@ atm_greeks = (
     })
 )
 
-# def interp_atm(group):
-#     group = group.sort_values("log_moneyness")
-#     result = {}
-#     for col in greek_cols:
-#         result[col] = np.interp(0.0, group["log_moneyness"], group[col])
-#     return pd.Series(result)
+def interp_atm(group):
+    group = group.sort_values("log_moneyness")
+    result = {}
+    for col in greek_cols:
+        result[col] = np.interp(0.0, group["log_moneyness"], group[col])
+    return pd.Series(result)
 
-# atm_greeks = (
-#     raw_df_NTM
-#     .groupby("Date")
-#     .apply(interp_atm)
-#     .reset_index()
-#     .rename(columns={
-#         'implied_vol' : 'iv_atm',
-#         'delta_bs'    : 'delta_bs_atm',
-#         'vega'        : 'vega_atm',
-#         'gamma_bs'    : 'gamma_bs_atm',
-#         'vanna_K'     : 'vanna_atm',
-#         'volga'       : 'volga_atm',
-#         'dsigma_dK'   : 'dsigma_dK_atm',
-#         'd2sigma_dK2' : 'd2sigma_dK2_atm',
-#         'delta'       : 'delta_atm',
-#         'gamma'       : 'gamma_atm',
-#     })
-# )
+atm_greeks = (
+    raw_df_NTM
+    .groupby("Date")
+    .apply(interp_atm)
+    .reset_index()
+    .rename(columns={
+        'implied_vol' : 'iv_atm',
+        'delta_bs'    : 'delta_bs_atm',
+        'vega'        : 'vega_atm',
+        'gamma_bs'    : 'gamma_bs_atm',
+        'vanna_K'     : 'vanna_atm',
+        'volga'       : 'volga_atm',
+        'dsigma_dK'   : 'dsigma_dK_atm',
+        'd2sigma_dK2' : 'd2sigma_dK2_atm',
+        'delta'       : 'delta_atm',
+        'gamma'       : 'gamma_atm',
+    })
+)
+
 date_start = atm_greeks["Date"].min().strftime("%Y-%m-%d")
 date_end   = atm_greeks["Date"].max().strftime("%Y-%m-%d")
 
@@ -91,7 +92,7 @@ std_df = std_df[std_df["Days"]==30]
 std_df["Date"] = pd.to_datetime(std_df["Date"])
 std_df = std_df[(std_df["Date"]>=date_start) & (std_df['Date']<=date_end)]
 std_df = std_df[std_df['SecurityID'] == 108105]
-std_df = std_df[std_df["CallPut"] == "C"]
+std_df = std_df[std_df["CallPut"] == "P"]
 std_df.drop(columns=['SecurityID', 'Days',"Currency",'Theta',"CallPut"], inplace=True)
 
 std_df.rename(columns={
@@ -123,27 +124,34 @@ print(df_merged)
 print(f"\nObsColumnas ervaciones en muestra común: {df_merged.columns}")
 # In[]
 # ============================================================
-# 3.1. ESTADÍSTICOS: gamma_bs_atm vs gamma_om
+# SELECCIÓN DE GAMMA  →  cambiar aquí para alternar
+#   "gamma_bs_atm"  : gamma Black-Scholes de la superficie
+#   "gamma_atm"     : gamma ajustada (Shimko) de la superficie
 # ============================================================
-df = df_merged.dropna(subset=["gamma_bs_atm", "gamma_om"])
+Gamma = "gamma_atm"
 
-corr_pearson, p_pearson = stats.pearsonr(df["gamma_bs_atm"], df["gamma_om"])
-corr_spearman, _        = stats.spearmanr(df["gamma_bs_atm"], df["gamma_om"])
+# ============================================================
+# 3.1. ESTADÍSTICOS: {Gamma} vs gamma_om
+# ============================================================
+df = df_merged.dropna(subset=[Gamma, "gamma_om"])
+
+corr_pearson, p_pearson = stats.pearsonr(df[Gamma], df["gamma_om"])
+corr_spearman, _        = stats.spearmanr(df[Gamma], df["gamma_om"])
 
 slope, intercept, r_value, p_value, std_err = stats.linregress(
-    df["gamma_om"], df["gamma_bs_atm"]
+    df["gamma_om"], df[Gamma]
 )
-rmse = np.sqrt(np.mean((df["gamma_bs_atm"] - df["gamma_om"])**2))
-mae  = np.mean(np.abs(df["gamma_bs_atm"] - df["gamma_om"]))
-bias = np.mean(df["gamma_bs_atm"] - df["gamma_om"])
+rmse = np.sqrt(np.mean((df[Gamma] - df["gamma_om"])**2))
+mae  = np.mean(np.abs(df[Gamma] - df["gamma_om"]))
+bias = np.mean(df[Gamma] - df["gamma_om"])
 
 print("\n" + "=" * 55)
-print("ESTADÍSTICOS GLOBALES: gamma_bs_atm vs gamma_om")
+print(f"ESTADÍSTICOS GLOBALES: {Gamma} vs gamma_om")
 print("=" * 55)
 print(f"  Observaciones        : {len(df):,}")
 print(f"  Correlación Pearson  : {corr_pearson:.4f}  (p={p_pearson:.2e})")
 print(f"  Correlación Spearman : {corr_spearman:.4f}")
-print(f"  OLS: gamma_bs_atm = {intercept:.6f} + {slope:.4f} * gamma_om")
+print(f"  OLS: {Gamma} = {intercept:.6f} + {slope:.4f} * gamma_om")
 print(f"  R²                   : {r_value**2:.4f}")
 print(f"  RMSE                 : {rmse:.6f}")
 print(f"  MAE                  : {mae:.6f}")
@@ -160,9 +168,9 @@ rows_year = []
 for year, grp in df.groupby("year"):
     if len(grp) < 5:
         continue
-    c_p, _  = stats.pearsonr(grp["gamma_bs_atm"], grp["gamma_om"])
-    s, i, r, _, _ = stats.linregress(grp["gamma_om"], grp["gamma_bs_atm"])
-    rmse_y  = np.sqrt(np.mean((grp["gamma_bs_atm"] - grp["gamma_om"])**2))
+    c_p, _  = stats.pearsonr(grp[Gamma], grp["gamma_om"])
+    s, i, r, _, _ = stats.linregress(grp["gamma_om"], grp[Gamma])
+    rmse_y  = np.sqrt(np.mean((grp[Gamma] - grp["gamma_om"])**2))
     rows_year.append({
         "Año":            year,
         "N":              len(grp),
@@ -171,13 +179,13 @@ for year, grp in df.groupby("year"):
         "Alpha":          round(i, 6),
         "Beta":           round(s, 4),
         "RMSE":           round(rmse_y, 6),
-        "gamma_bs_mean":  round(grp["gamma_bs_atm"].mean(), 6),
+        "gamma_raw_mean": round(grp[Gamma].mean(), 6),
         "gamma_om_mean":  round(grp["gamma_om"].mean(), 6),
     })
 
 by_year = pd.DataFrame(rows_year)
 print("\n" + "=" * 85)
-print("TABLA POR AÑO: gamma_bs_atm vs gamma_om")
+print(f"TABLA POR AÑO: {Gamma} vs gamma_om")
 print("=" * 85)
 print(by_year.to_string(index=False))
 print("=" * 85)
@@ -191,31 +199,31 @@ gs  = gridspec.GridSpec(3, 2, figure=fig, hspace=0.4, wspace=0.3)
 
 # ---- Panel 1: Serie temporal ----
 ax1 = fig.add_subplot(gs[0, :])
-ax1.plot(df["Date"], df["gamma_bs_atm"], "b-",  lw=1, alpha=0.8, label="Gamma BS ATM (superficie)")
-ax1.plot(df["Date"], df["gamma_om"],     "r--", lw=1, alpha=0.8, label="Gamma OptionMetrics")
-ax1.set_title("Gamma BS ATM vs Gamma OM — Serie temporal", fontsize=11, fontweight="bold")
+ax1.plot(df["Date"], df[Gamma],       "b-",  lw=1, alpha=0.8, label=f"{Gamma} (superficie)")
+ax1.plot(df["Date"], df["gamma_om"],  "r--", lw=1, alpha=0.8, label="Gamma OptionMetrics")
+ax1.set_title(f"{Gamma} vs Gamma OM — Serie temporal", fontsize=11, fontweight="bold")
 ax1.set_ylabel("Gamma")
 ax1.legend()
 ax1.grid(alpha=0.3)
 
 # ---- Panel 2: Scatter global ----
 ax2 = fig.add_subplot(gs[1, 0])
-ax2.scatter(df["gamma_om"], df["gamma_bs_atm"],
+ax2.scatter(df["gamma_om"], df[Gamma],
             alpha=0.15, s=5, color="steelblue")
 x_line = np.linspace(df["gamma_om"].min(), df["gamma_om"].max(), 100)
 ax2.plot(x_line, intercept + slope * x_line,
          "r-", lw=2, label=f"OLS: α={intercept:.6f}, β={slope:.4f}")
 ax2.plot(x_line, x_line, "k--", lw=1, alpha=0.5, label="45° (perfecto)")
 ax2.set_xlabel("Gamma OptionMetrics")
-ax2.set_ylabel("Gamma BS ATM (superficie)")
+ax2.set_ylabel(f"{Gamma} (superficie)")
 ax2.set_title(f"Scatter global  |  R²={r_value**2:.3f}  |  Corr={corr_pearson:.3f}",
               fontsize=9)
 ax2.legend(fontsize=8)
 ax2.grid(alpha=0.3)
 
-# ---- Panel 3: Diferencia (gamma_bs_atm - gamma_om) ----
+# ---- Panel 3: Diferencia (Gamma - gamma_om) ----
 ax3 = fig.add_subplot(gs[1, 1])
-diff = df["gamma_bs_atm"] - df["gamma_om"]
+diff = df[Gamma] - df["gamma_om"]
 ax3.plot(df["Date"], diff, "purple", lw=0.8, alpha=0.7)
 ax3.axhline(0,            color="black", lw=1,   ls="--")
 ax3.axhline(diff.mean(),  color="red",   lw=1.5, ls="--",
@@ -224,7 +232,7 @@ ax3.fill_between(df["Date"], diff, 0,
                  where=diff > 0, alpha=0.15, color="red")
 ax3.fill_between(df["Date"], diff, 0,
                  where=diff < 0, alpha=0.15, color="blue")
-ax3.set_title("Diferencia Gamma BS ATM − Gamma OM", fontsize=9)
+ax3.set_title(f"Diferencia {Gamma} − Gamma OM", fontsize=9)
 ax3.set_ylabel("Diferencia (gamma)")
 ax3.legend(fontsize=8)
 ax3.grid(alpha=0.3)
@@ -252,7 +260,7 @@ ax5.set_ylabel("RMSE")
 ax5.legend(fontsize=8)
 ax5.grid(alpha=0.3, axis="y")
 
-plt.suptitle("Validación: Gamma BS ATM (superficie) vs Gamma OptionMetrics",
+plt.suptitle(f"Validación: {Gamma} (superficie) vs Gamma OptionMetrics",
              fontsize=13, fontweight="bold", y=1.01)
 plt.tight_layout()
 plt.show()

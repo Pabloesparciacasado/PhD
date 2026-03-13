@@ -15,18 +15,18 @@ import duckdb
 # ============================================================
 # 1. CARGAR SUPERFICIES
 # ============================================================
-atm_band = 0.015  # ±1% alrededor de ATM
+atm_band = 0.01  # ±1% alrededor de ATM
 con = duckdb.connect()
 raw_df_clean = con.execute("""SELECT *
-FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_greeks_shimko_2.parquet')
+FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_greeks_shimko_3.parquet')
 """).df()
 raw_df_clean["Date"] = pd.to_datetime(raw_df_clean["Date"])
-raw_df_clean = raw_df_clean[['Date', 'Days','moneyness',
-       'log_moneyness', 'CallPut','implied_vol', 'Precio_Modelo', 'delta_bs', 'vega', 'gamma_bs', 'vanna_K',
+raw_df_clean = raw_df_clean[['Date', 'Days', 'moneyness',
+       'log_moneyness', 'CallPut', 'implied_vol', 'Precio_Modelo', 'delta_bs', 'vega', 'gamma_bs', 'vanna_K',
        'volga', 'dsigma_dK', 'd2sigma_dK2', 'delta', 'gamma']]
 
-raw_df_clean = raw_df_clean[raw_df_clean["CallPut"] == "C"]
-
+# Sonrisa completa C+P: vega es continua en ATM → interpolación correcta
+raw_df_clean = raw_df_clean[raw_df_clean["CallPut"]=="C"]
 raw_df_NTM = raw_df_clean[
         (raw_df_clean["moneyness"] >= 1 - atm_band) &
         (raw_df_clean["moneyness"] <= 1 + atm_band)]
