@@ -44,7 +44,7 @@ def interp_atm(group):
         result[col] = np.interp(0.0, group["log_moneyness"], group[col])
     return pd.Series(result)
 
-#raw_df_NTM = raw_df_NTM[raw_df_NTM["CallPut"] == "C"]
+# raw_df_NTM = raw_df_NTM[raw_df_NTM["CallPut"] == "C"]
 
 atm_greeks = (
     raw_df_NTM
