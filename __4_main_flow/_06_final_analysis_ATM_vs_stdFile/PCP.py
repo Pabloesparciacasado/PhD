@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-df = pd.read_parquet(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_30_shimko_2.parquet")
+df = pd.read_parquet(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\volatility_surface_30_shimko_2_prueba.parquet")
 df["Date"] = pd.to_datetime(df["Date"])
 
 atm_iv = (df.groupby(["Date", "Days","CallPut"])

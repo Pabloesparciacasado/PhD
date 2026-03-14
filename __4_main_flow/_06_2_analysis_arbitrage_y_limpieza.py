@@ -350,7 +350,7 @@ con = duckdb.connect()
 
 resultado_europeo = con.execute("""
 SELECT *
-FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_precios_shimko_3.parquet')
+FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_precios_shimko_2_prueba.parquet')
 """).df()
 
 print(resultado_europeo.columns.tolist())
@@ -365,7 +365,7 @@ df_clean, diag_df = run_surface_analysis(
     plot_sample      = True,
 )
 
-PARQET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_precios_limpio_shimko_3.parquet"
+PARQET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_precios_limpio_shimko_2_prueba.parquet"
 duckdb.from_df(df_clean).write_parquet(PARQET_OUTPUT, compression='snappy')
 
 print("===================================================================")

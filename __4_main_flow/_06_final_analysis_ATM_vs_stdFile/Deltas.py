@@ -19,7 +19,7 @@ import duckdb
 atm_band = 0.015 # ±1% alrededor de ATM
 con = duckdb.connect()
 raw_df_clean = con.execute("""SELECT *
-FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_greeks_shimko_2.parquet')
+FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\superficie_con_greeks_shimko_2_prueba.parquet')
 """).df()
 raw_df_clean["Date"] = pd.to_datetime(raw_df_clean["Date"])
 raw_df_clean = raw_df_clean[['delta','Date', 'Days', 'T', 'rate', 'moneyness',
@@ -86,7 +86,7 @@ std_df = std_df[std_df["Days"]==30]
 std_df["Date"] = pd.to_datetime(std_df["Date"])
 std_df = std_df[(std_df["Date"]>=date_start) & (std_df['Date']<=date_end)]
 std_df = std_df[std_df['SecurityID'] == 108105]
-std_df = std_df[std_df["CallPut"] == "C"]
+std_df = std_df[std_df["CallPut"] == "P"]
 std_df.drop(columns=['SecurityID', 'Days',"Currency",'Theta',"CallPut"], inplace=True)
 
 std_df.rename(columns={
@@ -130,7 +130,7 @@ print(f"\nObsColumnas ervaciones en muestra común: {df_merged.columns}")
 # 3.1. ESTADÍSTICOS: delta_bs_atm vs delta_om
 # ============================================================
 
-Delta = "delta_atm"
+Delta = "delta_bs_atm"
 df = df_merged.dropna(subset=[Delta, "delta_om"])
 
 corr_pearson, p_pearson = stats.pearsonr(df[Delta], df["delta_om"])

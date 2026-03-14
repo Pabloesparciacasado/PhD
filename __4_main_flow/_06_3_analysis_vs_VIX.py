@@ -31,7 +31,7 @@ con = duckdb.connect()
 
 df_clean = con.execute("""
 SELECT *
-FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_30_shimko_2.parquet')
+FROM read_parquet('C:\\Users\\pablo.esparcia\\Documents\\OptionMetrics\\output\\volatility_surface_30_shimko_2_prueba.parquet')
 """).df()
 
 df_clean["Date"] = pd.to_datetime(df_clean["Date"])

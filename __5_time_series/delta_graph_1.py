@@ -17,7 +17,7 @@ import duckdb
 atm_band = 0.015 # ±1% alrededor de ATM
 
 
-raw_df_clean = pd.read_parquet(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks_shimko_2.parquet")
+raw_df_clean = pd.read_parquet(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks_shimko_2_prueba.parquet")
 raw_df_clean["Date"] = pd.to_datetime(raw_df_clean["Date"])
 
 
@@ -44,7 +44,7 @@ df_plot = raw_df_clean[
 
 # Pivot: filas = fecha, columnas = moneyness discretizado
 df_plot["moneyness_round"] = df_plot["moneyness"].round(2)
-pivot = df_plot.groupby(["Date", "moneyness_round"])["delta"].mean().unstack("moneyness_round")
+pivot = df_plot.groupby(["Date", "moneyness_round"])["delta_bs"].mean().unstack("moneyness_round")
 pivot = pivot.dropna(thresh=int(pivot.shape[1] * 0.5))  # quitar fechas con demasiados NaN
 pivot = pivot.interpolate(axis=1)                        # interpolar NaN restantes
 
@@ -71,7 +71,7 @@ ax.set_ylabel("Moneyness (S/K)", labelpad=10)
 ax.set_zlabel("delta", labelpad=10)
 ax.set_title(f"Delta de calls (~{target_days}d) por Fecha y Moneyness", pad=15)
 
-fig.colorbar(surf, ax=ax, shrink=0.4, aspect=10, label="delta")
+fig.colorbar(surf, ax=ax, shrink=0.4, aspect=10, label="delta_bs")
 plt.tight_layout()
 plt.show()
 
@@ -83,7 +83,7 @@ plt.show()
 def build_pivot(cp_flag):
     df = raw_df_clean[raw_df_clean["CallPut"] == cp_flag].copy()
     df["moneyness_round"] = df["moneyness"].round(2)
-    piv = df.groupby(["Date", "moneyness_round"])["delta_bs"].mean().unstack("moneyness_round")
+    piv = df.groupby(["Date", "moneyness_round"])["delta"].mean().unstack("moneyness_round")
     piv = piv.dropna(thresh=int(piv.shape[1] * 0.5))
     piv = piv.interpolate(axis=1)
     return piv
@@ -118,9 +118,9 @@ for i, (piv, label, cmap) in enumerate(
     )
     ax.set_xlabel("Fecha", labelpad=10)
     ax.set_ylabel("Moneyness (S/K)", labelpad=10)
-    ax.set_zlabel("delta_bs", labelpad=10)
-    ax.set_title(f"delta_bs — {label}", pad=12)
-    fig.colorbar(surf, ax=ax, shrink=0.4, aspect=10, label="delta_bs")
+    ax.set_zlabel("delta", labelpad=10)
+    ax.set_title(f"delta — {label}", pad=12)
+    fig.colorbar(surf, ax=ax, shrink=0.4, aspect=10, label="delta")
 
 plt.suptitle("Comparación delta_bs: Calls vs Puts por Fecha y Moneyness", fontsize=13, y=1.01)
 plt.tight_layout()
@@ -133,8 +133,8 @@ plt.show()
 
 raw_quantile_C = raw_df_clean[raw_df_clean["CallPut"]=="C"]["moneyness"]
 raw_quantile_P = raw_df_clean[raw_df_clean["CallPut"]=="P"]["moneyness"]
-q = 10
-quantiles = list(np.round(np.linspace(0.1, 0.9, q-1), 1))
+q = 5
+quantiles = list(np.round(np.linspace(0.2, 0.8, q-1), 1))
 
 
 vector_quantile_C = np.quantile(raw_quantile_C,quantiles)
@@ -161,7 +161,7 @@ def interp_quantile(group, cp):
     group = group.sort_values("log_moneyness")
     rows = df_targets[df_targets["type"] == cp]
     return pd.Series({
-        row.label: np.interp(row.log_moneyness, group["log_moneyness"], group["delta"])
+        row.label: np.interp(row.log_moneyness, group["log_moneyness"], group["delta_bs"])
         for row in rows.itertuples()
     })
 
@@ -218,7 +218,7 @@ plt.show()
 
 # %%
 
-PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\time_series\quantile_delta.parquet"
+PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\time_series\quantile_delta_full.parquet"
 duckdb.from_df(quantile_greeks).write_parquet(PARQUET_OUTPUT, compression='snappy')
 print("="*100)
 print(f"Fichero guardado correctamente en: {PARQUET_OUTPUT}")
