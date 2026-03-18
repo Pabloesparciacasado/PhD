@@ -38,16 +38,16 @@ def interpolate_smile_slice(
 
     Parámetro principal: use_log_moneyness
     ---------------------------------------
-    True  (default): spline sobre IV(k) con k = log(K/F), grilla uniforme en k.
+    True  (default): spline sobre IV(k) con k = log(K/F), grid uniforme en k.
                      Asintóticamente más estable. Spacing variable en K.
 
-    False           : spline sobre IV(m) con m = K/F, grilla uniforme en m.
+    False           : spline sobre IV(m) con m = K/F, grid uniforme en m.
                       Spacing uniforme en K → segunda diferencia más estable
                       para cálculo de gamma numérico.
 
     Parámetro: extrapolation_method
     --------------------------------
-    "observed" : grilla limitada al rango observado. Sin extrapolación.
+    "observed" : grid limitada al rango observado. Sin extrapolación.
     "linear"   : extrapolación lineal en varianza total w = sigma^2 * T
                  con pendiente analítica del spline. Pendientes clippeadas
                  para garantizar monotonicidad de w (Lee 2004).
@@ -67,8 +67,8 @@ def interpolate_smile_slice(
     bc_type              : condición de frontera CubicSpline
                            "natural"    → w''=0 en extremos (conservador)
                            "not-a-knot" → tercera derivada continua en nodos interiores
-    use_log_moneyness    : True → spline en IV(k), grilla en k
-                           False → spline en IV(m), grilla en m
+    use_log_moneyness    : True → spline en IV(k), grid en k
+                           False → spline en IV(m), grid en m
 
     Returns
     -------
@@ -589,7 +589,7 @@ def _shimko_smile(
     m_c_grid = m_grid - m_center
 
     # ------------------------------------------------------------------
-    # Evaluar polinomio en toda la grilla
+    # Evaluar polinomio en toda la grid
     # ------------------------------------------------------------------
     iv_grid = np.polyval(coef, m_c_grid)
 
@@ -628,7 +628,7 @@ def _shimko_smile(
     iv_grid = np.clip(iv_grid, min_iv, max_iv)
 
     # ------------------------------------------------------------------
-    # Derivadas analíticas del polinomio en toda la grilla
+    # Derivadas analíticas del polinomio en toda la grid
     # Solo válidas dentro del rango observado — fuera son las derivadas
     # del flat (cero) pero las calculamos igualmente para consistencia
     # ------------------------------------------------------------------

@@ -44,6 +44,7 @@ opt_df = opt_df[["Date", "Expiration", "Strike", "CallPut", "Bid", "Ask", "Volum
 
 # Calulamos Mid Price y filtramos NID > 0 , por mid price > 0, volumen > 0 y open interest > 0, implied volatility > 0.
 opt_df = opt_df[opt_df["Bid"] > 0]
+opt_df = opt_df[opt_df["Ask"] > 0]
 opt_df = opt_df[opt_df["Ask"] >= opt_df["Bid"]]
 opt_df["MidPrice"] = (opt_df["Bid"] + opt_df["Ask"]) / 2
 opt_df["horquilla"] = (opt_df["Ask"] - opt_df["Bid"])/ opt_df["MidPrice"]
@@ -101,12 +102,13 @@ opt_df_2["flag_otm"] = (
     ((opt_df_2["CallPut"] == "P") & (opt_df_2["Moneyness"] <= 1)) |
     ((opt_df_2["CallPut"] == "C") & (opt_df_2["Moneyness"] >= 1))
 )
+
 opt_df_2 = opt_df_2[(opt_df_2["Moneyness"] >= 0.3) & (opt_df_2["Moneyness"] <= 1.7)]
 
 
 
 # In[]:
-############ Filtros de no-arbitraje estático para opciones cotizadas (bounds estáticos) ############
+############ Marcaje de no-arbitraje estático para opciones cotizadas (bounds) ############
 def static_arbitrage_bounds(
     df: pd.DataFrame,
     filtrar: bool = False,
@@ -211,9 +213,6 @@ opt_df_2 = static_arbitrage_bounds(opt_df_2, filtrar=False)
 opt_df_2 = opt_df_2.drop(columns=["DiscountFactor", "lower_bound", "upper_bound"])
 
 
-#############################################################################################################
-#############################################################################################################
-
 
 # In[]:
 ############ HACEMOS UN CHECK DE DUPLICADOS EN LOS STRIKES DENTRO DE CADA GRUPO FECHA/EXPIRY/CALLPUT ############
@@ -272,7 +271,7 @@ slice_summary["flag_slice_usable"] = (
 
 
 
-slice_summary.to_csv(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\slice_summary_1.csv", index=False)
+slice_summary.to_csv(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\slice_summary.csv", index=False)
 
 print("Proceso de carga y filtrado de opciones cotizadas finalizado.")
 

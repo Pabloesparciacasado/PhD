@@ -359,7 +359,7 @@ print(resultado_europeo.columns.tolist())
 df_clean, diag_df = run_surface_analysis(
     df_in            = resultado_europeo,
     drop_bounds_fail = True,
-    drop_mono_fail   = True,
+    drop_mono_fail   = False,
     drop_conv_fail   = False,   # warning
     verbose          = True,
     plot_sample      = True,

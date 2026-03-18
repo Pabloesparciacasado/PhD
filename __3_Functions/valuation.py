@@ -28,7 +28,7 @@ class model_valuation:
     Examples
     --------
     >>> model = model_valuation(curve_df=curva_3y, currency=333, div_df=divs_3y)
-    >>> europeas  = model.price_BS(datos_europeos)
+    >>> europeas  = model.price_BS_general(datos_europeos)
     >>> americanas = model.price_american(datos_americanos)
     >>> todas     = model.price(datos_con_exercise_style)
     >>> model.pricing_error(europeas)
@@ -123,10 +123,7 @@ class model_valuation:
         Recupera S implícito desde el precio forward (implicitamente si hubiera dividendos los estaríamos descontando)
         
         Fórmulas:
-            S    = K · exp[d1·σ·√τ − (r−q+σ²/2)·τ]
-            Call = S·e^(−q·τ)·N(d1)  − K·e^(−r·τ)·N(d2)
-            Put  = K·e^(−r·τ)·N(−d2) − S·e^(−q·τ)·N(−d1)
-
+           Modelo de Black76
         Returns
         -------
         pd.DataFrame
@@ -291,86 +288,6 @@ class model_valuation:
             .round(2)
         )
 
-    def greeks(self, volatility_data: pd.DataFrame) -> pd.DataFrame:
-        """
-        Calcula las griegas analíticas BSM (solo europeas).
-
-        Griegas implementadas:
-            Delta  = e^(−q·τ)·N(d1)                          (call)
-                   = e^(−q·τ)·(N(d1)−1)                      (put)
-            Gamma  = e^(−q·τ)·n(d1) / (S·σ·√τ)
-            Vega   = S·e^(−q·τ)·n(d1)·√τ
-            Theta  = −S·e^(−q·τ)·n(d1)·σ/(2·√τ)
-                     −r·K·e^(−r·τ)·N(d2)  + q·S·e^(−q·τ)·N(d1)   (call)
-            Rho    = K·τ·e^(−r·τ)·N(d2)                       (call)
-                   = −K·τ·e^(−r·τ)·N(−d2)                    (put)
-
-        Returns
-        -------
-        pd.DataFrame
-            Input con columnas añadidas: r, q, Underlying, Delta_calc,
-            Gamma, Vega, Theta, Rho
-        """
-        bloques = []
-
-        for fecha, vol_fecha in volatility_data.groupby("Date"):
-            if not (self.curve_df["Date"] == fecha).any():
-                continue
-
-            vol_fecha = self._filter_missing(vol_fecha)
-            if vol_fecha.empty:
-                continue
-
-            result      = vol_fecha.copy()
-            r           = interpolate_rates_surface(self.curve_df, vol_fecha, fecha, self.currency, self.base)
-            result["r"] = r.values
-            result["q"] = interpolate_dividends_surface(self.div_df, vol_fecha, fecha, self.base)
-            d1, d2, S   = self._recover_S(result, r)
-            result["Underlying"] = S
-
-            q   = result["q"]
-            K   = result["Strike"]
-            t   = result["Days"] / self.base
-            sig = result["ImpliedVol"]
-
-            disc_q  = np.exp(-q * t)
-            disc_r  = np.exp(-r * t)
-            n_d1    = norm.pdf(d1)   # densidad normal en d1
-            sqrt_t  = np.sqrt(t)
-
-            mask_call = result["CallPut"] == "C"
-
-            # Delta
-            result["Delta_calc"] = np.where(
-                mask_call,
-                disc_q * norm.cdf( d1),
-                disc_q * (norm.cdf(d1) - 1),
-            )
-
-            # Gamma (igual para calls y puts)
-            result["Gamma"] = disc_q * n_d1 / (S * sig * sqrt_t)
-
-            # Vega (igual para calls y puts), en términos de 1% de σ
-            result["Vega"] = S * disc_q * n_d1 * sqrt_t / 100
-
-            # Theta (por día calendario)
-            theta_common = -S * disc_q * n_d1 * sig / (2 * sqrt_t)
-            result["Theta"] = np.where(
-                mask_call,
-                (theta_common - r * K * disc_r * norm.cdf( d2) + q * S * disc_q * norm.cdf( d1)) / self.base,
-                (theta_common + r * K * disc_r * norm.cdf(-d2) - q * S * disc_q * norm.cdf(-d1)) / self.base,
-            )
-
-            # Rho (por 1% de r)
-            result["Rho"] = np.where(
-                mask_call,
-                 K * t * disc_r * norm.cdf( d2) / 100,
-                -K * t * disc_r * norm.cdf(-d2) / 100,
-            )
-
-            bloques.append(result)
-
-        return pd.concat(bloques)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Métodos internos

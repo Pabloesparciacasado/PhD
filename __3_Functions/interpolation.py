@@ -151,7 +151,7 @@ def interpolate_dividends_surface(
     div_df: pd.DataFrame | None,
     vol_fecha: pd.DataFrame,
     fecha: pd.Timestamp,
-    base: float = 360.0,
+    base: float = 365.0,
 ) -> pd.Series:
     """
     Interpola q para todos los SecurityIDs de una fecha de la superficie.

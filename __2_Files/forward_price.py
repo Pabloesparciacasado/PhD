@@ -256,7 +256,7 @@ if __name__ == "__main__":
     fp.cargar_csv(CSV)
     fp.exportar_parquet(PARQUET)
 
-    # ── Uso habitual: cargar Parquet → self.df (pandas normal) ────────────────
+    # ── Uso habitual:  ────────────────
     fp.cargar_parquet(
         ruta     = PARQUET,
         desde    = "2010-01-01",    # ajusta el rango según necesites

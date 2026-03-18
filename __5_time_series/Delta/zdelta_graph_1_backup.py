@@ -14,10 +14,8 @@ import duckdb
 # ============================================================
 # 1. CARGAR SUPERFICIES
 # ============================================================
-atm_band = 0.015 # ±1% alrededor de ATM
 
-
-raw_df_clean = pd.read_parquet(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks_shimko_2_prueba.parquet")
+raw_df_clean = pd.read_parquet(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\superficie_con_greeks_shimko_2.parquet")
 raw_df_clean["Date"] = pd.to_datetime(raw_df_clean["Date"])
 
 
@@ -26,17 +24,22 @@ raw_df_clean = raw_df_clean[['delta','delta_bs','Date', 'Days', 'T', 'rate', 'mo
        'log_moneyness', 'CallPut', 'implied_vol', 'Precio_Modelo', 'vega', 'gamma_bs', 'vanna_K',
        'volga', 'dsigma_dK', 'd2sigma_dK2', 'gamma']]
 
-# raw_df_NTM = raw_df_clean[
-#         (raw_df_clean["moneyness"] >= 1 - atm_band) &
-#         (raw_df_clean["moneyness"] <= 1 + atm_band)]
+# Cutoff por tipo: mayor de los mínimos de moneyness por fecha
+# → punto más bajo desde el que TODAS las fechas tienen dato
+for cp in ["C", "P"]:
+    lo = raw_df_clean[raw_df_clean["CallPut"] == cp].groupby("Date")["moneyness"].min().max()
+    mask = (raw_df_clean["CallPut"] == cp) & (raw_df_clean["moneyness"] >= lo)
+    raw_df_clean = raw_df_clean[mask | (raw_df_clean["CallPut"] != cp)]
+    print(f"Cutoff {cp}: {lo:.4f}")
+
+
 # In[]
 # ============================================================
-# 2. GRÁFICO 3D: Delta por Fecha y Moneyness
+# 2. GRÁFICO 3D: Delta BS por Fecha y Moneyness
 # ============================================================
 
 # Filtrar calls y un vencimiento representativo (~30 días)
 target_days = 30
-tol_days = 10
 
 df_plot = raw_df_clean[
     (raw_df_clean["CallPut"] == "C") 
@@ -68,8 +71,8 @@ ax.set_xticklabels(
 )
 ax.set_xlabel("Fecha", labelpad=10)
 ax.set_ylabel("Moneyness (S/K)", labelpad=10)
-ax.set_zlabel("delta", labelpad=10)
-ax.set_title(f"Delta de calls (~{target_days}d) por Fecha y Moneyness", pad=15)
+ax.set_zlabel("delta_bs", labelpad=10)
+ax.set_title(f"Delta BS de calls (~{target_days}d) por Fecha y Moneyness", pad=15)
 
 fig.colorbar(surf, ax=ax, shrink=0.4, aspect=10, label="delta_bs")
 plt.tight_layout()
@@ -84,7 +87,12 @@ def build_pivot(cp_flag):
     df = raw_df_clean[raw_df_clean["CallPut"] == cp_flag].copy()
     df["moneyness_round"] = df["moneyness"].round(2)
     piv = df.groupby(["Date", "moneyness_round"])["delta"].mean().unstack("moneyness_round")
-    piv = piv.dropna(thresh=int(piv.shape[1] * 0.5))
+    piv = piv.dropna(thresh=int(piv.shape[1] * 0.5))    
+# Recorte: quedarse solo con columnas donde TODAS las fechas tienen dato
+    first_valid = piv.apply(lambda row: row.first_valid_index(), axis=1)
+    cutoff = first_valid.max()  # el mayor de los mínimos → a partir de aquí todos tienen dato
+    piv = piv.loc[:, piv.columns >= cutoff]
+    
     piv = piv.interpolate(axis=1)
     return piv
 
@@ -122,7 +130,7 @@ for i, (piv, label, cmap) in enumerate(
     ax.set_title(f"delta — {label}", pad=12)
     fig.colorbar(surf, ax=ax, shrink=0.4, aspect=10, label="delta")
 
-plt.suptitle("Comparación delta_bs: Calls vs Puts por Fecha y Moneyness", fontsize=13, y=1.01)
+plt.suptitle("Comparación delta :  Calls vs Puts por Fecha y Moneyness", fontsize=13, y=1.01)
 plt.tight_layout()
 plt.show()
 
@@ -161,7 +169,7 @@ def interp_quantile(group, cp):
     group = group.sort_values("log_moneyness")
     rows = df_targets[df_targets["type"] == cp]
     return pd.Series({
-        row.label: np.interp(row.log_moneyness, group["log_moneyness"], group["delta_bs"])
+        row.label: np.interp(row.log_moneyness, group["log_moneyness"], group["delta"])
         for row in rows.itertuples()
     })
 
