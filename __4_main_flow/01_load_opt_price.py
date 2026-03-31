@@ -14,9 +14,6 @@ from __2_Files.zero_curve import ZeroCurve
 
 
 
-###################################################################
-######################### FASE 1 ##################################
-###################################################################
 
 #------------------configuración y cargade datos ------------------
 
@@ -42,7 +39,7 @@ opt_df["Strike"] = opt_df["Strike"]/1000
 #Columnas que nos interesan
 opt_df = opt_df[["Date", "Expiration", "Strike", "CallPut", "Bid", "Ask", "Volume", "OpenInterest","Days","ImpliedVolatility", "ExpiryIndicator", "AMSettlement"]]
 
-# Calulamos Mid Price y filtramos NID > 0 , por mid price > 0, volumen > 0 y open interest > 0, implied volatility > 0.
+# Calulamos Mid Price y filtramos BID > 0 , por mid price > 0, volumen > 0 y open interest > 0, implied volatility > 0.
 opt_df = opt_df[opt_df["Bid"] > 0]
 opt_df = opt_df[opt_df["Ask"] > 0]
 opt_df = opt_df[opt_df["Ask"] >= opt_df["Bid"]]
@@ -67,12 +64,11 @@ PARQUET_FP = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\forward_pr
 fp = ForwardPrice()
 fp.cargar_parquet(PARQUET_FP,desde, hasta)
 fp_df = fp.df
+
 PARQUET_ZC = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\Acumulado\zero_curve.parquet"
 zc  = ZeroCurve(sep='\t')
 zc.cargar_parquet(PARQUET_ZC, desde, hasta)
 
-
-print(zc.df.head())
 # In[]:
 #---------Asignamos al dataframes de opciones los forward price -------------------
 
