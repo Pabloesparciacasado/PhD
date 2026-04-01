@@ -198,7 +198,7 @@ class OptionPrice:
 
         print("Cargando en RAM…")
         inicio    = time.perf_counter()
-        self.df   = duckdb.sql(f"SELECT {cols} FROM '{ruta_p}' {where}").df()
+        self.df   = duckdb.sql(f"SELECT {cols} FROM '{ruta_p}' {where}").arrow().read_all().to_pandas()
         fin       = time.perf_counter()
 
         for fecha_col in ('Date', 'Expiration'):
