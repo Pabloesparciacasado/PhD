@@ -13,12 +13,11 @@ opt_df = pd.read_parquet(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\outpu
 
 opt_df_filtered = opt_df[(opt_df["OpenInterest"] > 0) | (opt_df["Volume"] > 0)].reset_index(drop=True)
 
-opt_df_filtered = opt_df[(opt_df["Bid"] > 0)].reset_index(drop=True)
+#opt_df_filtered = opt_df[(opt_df["Bid"] > 0)].reset_index(drop=True)
 
 v_grid = [0, 15, 45, 105, 183, 365, np.inf]
+v_grid = [1,9,29,59,89,179,364, np.inf]
 
-# In[]:
-v_grid = [1, 9, 29, 59, 89, 179, 364, np.inf]
 v_edges = pd.IntervalIndex.from_breaks(v_grid, closed="right")
 
 v_idx = pd.cut(opt_df_filtered["Days"], bins=v_edges, labels=False, include_lowest=True)
@@ -52,6 +51,29 @@ strikes_por_grupo = (
 print(strikes_por_grupo.groupby("bucket")["n_strikes"].describe(
     percentiles=[.05, .10, .25, .50, .75, .90, .95]
 ).round(1))
+
+
+# In[]:
+# Veamos para el bucket 1,  el número de días con menos de 6 strikes por tipo de opción:
+for cp in ["C", "P"]:
+    mask = (strikes_por_grupo["bucket"] == pd.Interval(0.0, 15.0, closed="right")) & (strikes_por_grupo["CallPut"] == cp)
+    total_dias = mask.sum()
+    dias_pocos_strikes = (strikes_por_grupo[mask]["n_strikes"] < 6).sum()
+    print(f"Bucket 1 - {cp}: {dias_pocos_strikes} días con menos de 6 strikes ({dias_pocos_strikes/total_dias:.2%})")
+    print(f"Number of total days: {total_dias}")
+
+# In[]:
+
+resumen = (strikes_por_grupo
+           .groupby(["bucket", "CallPut"])
+           .apply(lambda x: pd.Series({
+               "total_dias":  len(x),
+               "dias_pocos":  (x["n_strikes"] <= 5).sum(),
+               "pct_pocos":   (x["n_strikes"] <= 5).mean(),
+           }))
+           .reset_index())
+
+print(resumen.round(4))
 
 
 
