@@ -4,14 +4,21 @@ import numpy as np
 import sys
 from tabulate import tabulate
 import matplotlib.pyplot as plt
-
+import os
 
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-PATH_DATA   = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\preliminares\opt_df_prueba.parquet"
+
+if os.name == 'nt':
+    PATH_DATA = r"Y:\OUTPUTS\opt_df_prueba.parquet"
+    PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks.parquet"
+else:
+    PATH_DATA = r"Volumes/data/OptionMetrics/OUTPUTS/opt_df_prueba.parquet"
+    PATH_OUTPUT = r"Volumes/data/OptionMetrics/OUTPUTS/opt_df_empirical_greeks.parquet"
+
 print("Cargando datos...")
 opt_df = pd.read_parquet(PATH_DATA)
 

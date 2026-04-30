@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import sys
 import duckdb
+import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -13,7 +14,12 @@ from __2_Files.option_price import OptionPrice
 
 #------------------configuración y cargade datos ------------------
 
-PARQUET_RUTA = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\Acumulado\option_price.parquet"
+if os.name == 'nt':
+    PARQUET_RUTA = r"Y:\OptionMetrics\Acumulado"
+    PARQUET_OUTPUT = r"Y:\OUTPUTS"
+else:
+    PARQUET_RUTA = r"/Volumes/data/OptionMetrics/Acumulado/"
+    PARQUET_OUTPUT = r"/Volumes/data/OptionMetrics/OUTPUTS/"
 
 
 COLUMNAS = [
@@ -24,7 +30,7 @@ desde = "2003-01-02"
 hasta = "2024-02-29"
 
 op = OptionPrice()
-op.cargar_parquet(PARQUET_RUTA, desde, hasta,security_id=108105, columnas=COLUMNAS)
+op.cargar_parquet(os.path.join(PARQUET_RUTA, "option_price.parquet"), desde, hasta, security_id=108105, columnas=COLUMNAS)
 
 opt_df = op.df
 
@@ -88,7 +94,7 @@ opt_df = opt_df[(opt_df["Bid"]>=0) & (opt_df["Ask"] > opt_df["Bid"])]
 opt_df
 # %%
 
-sec_price = pd.read_parquet(r"C:\Users\pablo.esparcia\Documents\OptionMetrics\Acumulado\security_price.parquet")
+sec_price = pd.read_parquet(os.path.join(PARQUET_RUTA, "security_price.parquet"))
 
 # %%
 sec_price["Date"] = pd.to_datetime(sec_price["Date"], format="%Y-%m-%d")
@@ -113,7 +119,7 @@ opt_df_prueba["flag_otm"] = (
 )
 
 
-PARQUET_OUTPUT = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\preliminares\opt_df_prueba.parquet"
+PARQUET_OUTPUT = os.path.join(PARQUET_OUTPUT, "opt_df_prueba.parquet")
 duckdb.from_df(opt_df_prueba).write_parquet(PARQUET_OUTPUT, compression='snappy')
 print("=" * 100)
 print(f"Fichero guardado correctamente en: {PARQUET_OUTPUT}")
