@@ -56,6 +56,8 @@ opt_df_greek_filt_95 = opt_df_greek_filt[
 ]
 
 # %% 
+opt_df_greek_filt_95
+# %% 
 ##################################################################################### 
 # Análisis 1 Parte 2: Descriptivos con dataframe filtrado al percentil 95% y 5%
 #####################################################################################
@@ -146,7 +148,6 @@ fig.suptitle("Serie temporal Gamma empírica vs BS", fontsize=13)
 plt.tight_layout()
 plt.show()
 # %%
-
 #####################################################################################
 # Análisis 2b: Serie temporal MENSUAL — media de delta y gamma sobre todo el moneyness
 # ponderada por OI, comparativa empírica vs teórica (BS)
@@ -180,7 +181,7 @@ def media_mensual_OI(df, greek_emp, greek_teo):
     df_out["Date"] = df_out["YearMonth"].dt.to_timestamp()
     return df_out
 
-
+# %%
 serie_delta_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp", "Delta")
 serie_gamma_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp", "Gamma")
 
@@ -256,7 +257,7 @@ def media_mensual_aritmetic(df, greek_emp, greek_teo):
     df_out["Date"] = df_out["YearMonth"].dt.to_timestamp()
     return df_out
 
-
+# %%
 serie_delta_m = media_mensual_aritmetic(opt_df_greek_filt_95, "delta_emp", "Delta")
 serie_gamma_m = media_mensual_aritmetic(opt_df_greek_filt_95, "gamma_emp", "Gamma")
 
@@ -333,8 +334,10 @@ serie_gamma2_m = media_mensual_aritmetic(opt_df_greek_filt_95, "gamma_emp_op2", 
 serie_gamma3_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp_op3", "Gamma")
 
 
-# %%
+
 agregado = pd.DataFrame({
+    "YearMonth": serie_delta1_m["YearMonth"],
+    "CallPut": serie_delta1_m["CallPut"],
     "DeltaT": serie_delta2_m["Delta"],
     "Delta1": serie_delta1_m["delta_emp"],
     "Delta2": serie_delta2_m["delta_emp_op2"],
@@ -344,22 +347,18 @@ agregado = pd.DataFrame({
     "Gamma2": serie_gamma2_m["gamma_emp_op2"],
     "Gamma3": serie_gamma3_m["gamma_emp_op3"]
 })
-# %%
-agregado.corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas medias aritméticas")
+
+agregado[["Delta1", "Delta2", "Delta3", "Gamma1", "Gamma2", "Gamma3"]].corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas medias aritméticas")
 
 # %%
 #####################################################################################
-# Punto 2: Descomposición vanna/charm — brecha entre gamma realizada y BS
+# Análisis 4: Descomposición vanna/charm — brecha entre gamma realizada y BS
 #####################################################################################
-# Filtro ATM: buckets (0.9, 1.0] y (1.0, 1.1]
-atm_buckets = ["(0.9, 1.0]", "(1.0, 1.1]"]
 
-
-# Para la descomposición necesitamos Vanna y Charm de BS
-# Vanna = dDelta/dSigma = -d1 * N'(d1) / (sigma * sqrt(T))  ≈ disponible en OptionMetrics como "Vega" y "Delta"
-# Charm = dDelta/dt     = -N'(d1) * [2rT - d2*sigma*sqrt(T)] / (2T*sigma*sqrt(T))
-# Verificamos si están disponibles:
-print("\n=== Columnas disponibles ===")
-print(opt_df_greek.columns.tolist())
+serie_greek_95 = opt_df_greek_filt_95.merge(agregado[["YearMonth", "CallPut"]], on=["YearMonth", "CallPut"], how="left")
+serie_greek_95
 # %%
-    
+serie_delta1_m
+# %%
+opt_df_greek_filt_95
+# %%
