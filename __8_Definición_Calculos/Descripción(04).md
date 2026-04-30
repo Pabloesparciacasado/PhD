@@ -24,6 +24,12 @@ Para facilitar el análisis consiguiente, elimino para aquellos puntos fuera del
     Genero una nueva tabla descriptiva y es llamativa la similitud de la media y desciación tipica de las deltas y adicionalmente la distribución en calls.
     En gammas se destaca el signo contrario al teórico
 
-## Análisis 2: Graficos de las serie temporal por percentiles.
+## Análisis 2: Graficos de las serie temporal.
 
-Se generan 2 gráficos para mostrar la serie temporal de las deltas y gammas para diversos percentiles: 25, 50 y 75 de los datos diarios
+Se generan 2X2 gráficos para mostrar la serie temporal de las deltas y gammas para la media aritmética del mes y media ponderada mensual por OI.
+
+    Se ve como en los gráficos de las DELTAS, está completamente alineado con la DELTA teórica de BS, mientras que la gamma es consistentemente negativa (en media) es mucho más acelerado y dinámico.
+
+En un análisis adicional **Análisis 3** muestro una tabla de correlaciones que verifican este efecto.
+
+###

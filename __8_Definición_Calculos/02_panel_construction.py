@@ -55,7 +55,7 @@ opt_df["maturity_bucket"] = pd.cut(opt_df["Days"],
 #     include_lowest=True
 # )
 
-m_grid = np.round(np.linspace(0.1,2,int(2/0.1)),2)
+m_grid = np.round(  np.linspace(0.1,2,int(2/0.1)),2)
 m_grid = np.concatenate(([0],m_grid, [np.inf]))
 m_edges = pd.IntervalIndex.from_breaks(m_grid, closed="right")
 opt_df["moneyness_bucket"] = pd.cut(opt_df["Moneyness"], bins=m_edges, labels=False, include_lowest=True)

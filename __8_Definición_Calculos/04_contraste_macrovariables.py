@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import sys
 import os
-
+import seaborn as sns
 
 from pathlib import Path
 
@@ -26,6 +26,8 @@ print(opt_df_greek.isnull().sum())
 #Nos quedamos con los datos del bucket de vencimiento 15-45 días y delta no NaN:
 
 opt_df_greek_filt = opt_df_greek[(opt_df_greek["maturity_bucket"] == '(0.0, 15.0]') & (opt_df_greek["delta_emp"].notna()) & (opt_df_greek["gamma_emp"].notna())]
+
+opt_df_greek_filt
 
 # %% 
 
@@ -70,7 +72,7 @@ desc
 
 # %%
 #####################################################################################
-# Análisis 2
+# Análisis 2: GRÁFICOS DE SERIES TEMPORAL MENSUALES.
 #####################################################################################
 
 #####################################################################################
@@ -154,7 +156,7 @@ import matplotlib.dates as mdates
 opt_df_greek_filt_95["YearMonth"] = opt_df_greek_filt_95["Date"].dt.to_period("M")
 
 # Media mensual ponderada por OI para cada (YearMonth, CallPut)
-def media_mensual(df, greek_emp, greek_teo):
+def media_mensual_OI(df, greek_emp, greek_teo):
     resultados = []
 
     for (ym, cp), grupo in df.groupby(["YearMonth", "CallPut"]):
@@ -179,8 +181,8 @@ def media_mensual(df, greek_emp, greek_teo):
     return df_out
 
 
-serie_delta_m = media_mensual(opt_df_greek_filt_95, "delta_emp", "Delta")
-serie_gamma_m = media_mensual(opt_df_greek_filt_95, "gamma_emp", "Gamma")
+serie_delta_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp", "Delta")
+serie_gamma_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp", "Gamma")
 
 
 # ---- Gráfico Delta ----
@@ -230,7 +232,7 @@ plt.show()
 opt_df_greek_filt_95["YearMonth"] = opt_df_greek_filt_95["Date"].dt.to_period("M")
 
 # Media mensual ponderada por OI para cada (YearMonth, CallPut)
-def media_mensual(df, greek_emp, greek_teo):
+def media_mensual_aritmetic(df, greek_emp, greek_teo):
     resultados = []
 
     for (ym, cp), grupo in df.groupby(["YearMonth", "CallPut"]):
@@ -255,8 +257,8 @@ def media_mensual(df, greek_emp, greek_teo):
     return df_out
 
 
-serie_delta_m = media_mensual(opt_df_greek_filt_95, "delta_emp", "Delta")
-serie_gamma_m = media_mensual(opt_df_greek_filt_95, "gamma_emp", "Gamma")
+serie_delta_m = media_mensual_aritmetic(opt_df_greek_filt_95, "delta_emp", "Delta")
+serie_gamma_m = media_mensual_aritmetic(opt_df_greek_filt_95, "gamma_emp", "Gamma")
 
 
 # ---- Gráfico Delta ----
@@ -282,7 +284,7 @@ fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
 
 for cp, ax in zip(["C", "P"], axes):
     data_cp = serie_gamma_m[serie_gamma_m["CallPut"] == cp].sort_values("Date")
-    # ax.plot(data_cp["Date"], data_cp["gamma_emp"], color="darkorange", linewidth=1.0, label="Gamma empírica")
+    ax.plot(data_cp["Date"], data_cp["gamma_emp"], color="darkorange", linewidth=1.0, label="Gamma empírica")
     ax.plot(data_cp["Date"], data_cp["Gamma"],     color="firebrick",  linewidth=1.0, label="Gamma BS", alpha=0.8)
     ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
     ax.set_title(f"Gamma — {'Call' if cp == 'C' else 'Put'} (media aritmética para todo el moneyness)")
@@ -296,3 +298,68 @@ plt.tight_layout()
 plt.show()
 # %%
 
+#######################################################################################
+# Análisis 3: Correlaciones sensibilidades empíricas vs teóricas
+#######################################################################################
+
+#"solo printeamos"
+
+import seaborn as sns
+corr_greeks = opt_df_greek_filt_95[["delta_emp","delta_emp_op2","delta_emp_op3", "Delta", "gamma_emp", "gamma_emp_op2","gamma_emp_op3","Gamma"]].corr(method="pearson")
+
+
+corr_greeks.style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones sensibilidades empíricas vs teóricas")
+plt.figure(figsize=(8, 6))
+sns.heatmap(corr_greeks, annot=True, vmin=-1, vmax=1)
+plt.title("Correlaciones sensibilidades empíricas vs teóricas")
+plt.show()
+
+# %%
+
+corr_greeks.style.highlight_quantile(
+    axis=None,
+    q_left=0.75,
+    q_right=1,
+    props="font-weight:bold;color:#4fc8d1")
+# %%
+corr_greeks.style.background_gradient(vmin=-1, vmax=1,cmap="coolwarm")
+
+# %%
+serie_delta1_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp", "Delta")
+serie_delta2_m = media_mensual_aritmetic(opt_df_greek_filt_95, "delta_emp_op2", "Delta")
+serie_delta3_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp_op3", "Delta")
+serie_gamma1_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp", "Gamma")
+serie_gamma2_m = media_mensual_aritmetic(opt_df_greek_filt_95, "gamma_emp_op2", "Gamma")
+serie_gamma3_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp_op3", "Gamma")
+
+
+# %%
+agregado = pd.DataFrame({
+    "DeltaT": serie_delta2_m["Delta"],
+    "Delta1": serie_delta1_m["delta_emp"],
+    "Delta2": serie_delta2_m["delta_emp_op2"],
+    "Delta3": serie_delta3_m["delta_emp_op3"],
+    "GammaT": serie_gamma2_m["Gamma"],
+    "Gamma1": serie_gamma1_m["gamma_emp"],
+    "Gamma2": serie_gamma2_m["gamma_emp_op2"],
+    "Gamma3": serie_gamma3_m["gamma_emp_op3"]
+})
+# %%
+agregado.corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas medias aritméticas")
+
+# %%
+#####################################################################################
+# Punto 2: Descomposición vanna/charm — brecha entre gamma realizada y BS
+#####################################################################################
+# Filtro ATM: buckets (0.9, 1.0] y (1.0, 1.1]
+atm_buckets = ["(0.9, 1.0]", "(1.0, 1.1]"]
+
+
+# Para la descomposición necesitamos Vanna y Charm de BS
+# Vanna = dDelta/dSigma = -d1 * N'(d1) / (sigma * sqrt(T))  ≈ disponible en OptionMetrics como "Vega" y "Delta"
+# Charm = dDelta/dt     = -N'(d1) * [2rT - d2*sigma*sqrt(T)] / (2T*sigma*sqrt(T))
+# Verificamos si están disponibles:
+print("\n=== Columnas disponibles ===")
+print(opt_df_greek.columns.tolist())
+# %%
+    
