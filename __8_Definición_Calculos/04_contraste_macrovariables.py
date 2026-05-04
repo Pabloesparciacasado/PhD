@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import seaborn as sns
+import matplotlib.dates as mdates
 
 from pathlib import Path
 
@@ -29,7 +30,7 @@ opt_df_greek_filt = opt_df_greek[(opt_df_greek["maturity_bucket"] == '(0.0, 15.0
 
 opt_df_greek_filt
 
-# %% 
+
 
 #####################################################################################
 # Análisis 1: Descripción de las variables empíricas vs teóricas por tipo de opción
@@ -46,7 +47,7 @@ desc = desc.stack(level=0).reset_index()
 desc = desc.rename(columns={"level_1": "Greek"})
 desc
 
-# %% Filtrado al percentil 95% y 5%:
+# Filtrado al percentil 95% y 5%:
 
 opt_df_greek_filt_95 = opt_df_greek_filt[
     (opt_df_greek_filt["delta_emp"] <= opt_df_greek_filt["delta_emp"].quantile(0.95)) &
@@ -55,7 +56,7 @@ opt_df_greek_filt_95 = opt_df_greek_filt[
     (opt_df_greek_filt["gamma_emp"] >= opt_df_greek_filt["gamma_emp"].quantile(0.05))
 ]
 
-# %% 
+
 opt_df_greek_filt_95
 # %% 
 ##################################################################################### 
@@ -168,6 +169,9 @@ def media_mensual_OI(df, greek_emp, greek_teo):
         oi = grupo_valid["OpenInterest"]
         if oi.sum() == 0:
             continue
+        
+        # grupo_valid[greek_teo] = grupo_valid[greek_teo]*grupo_valid["SpotPrice"]**2 if "Gamma" == greek_teo else grupo_valid[greek_teo]
+        # grupo_valid[greek_emp] = grupo_valid[greek_emp]*grupo_valid["SpotPrice"]**2 if "Gamma" == greek_teo else grupo_valid[greek_emp]
 
         resultados.append({
             "YearMonth":  ym,
@@ -326,11 +330,11 @@ corr_greeks.style.highlight_quantile(
 corr_greeks.style.background_gradient(vmin=-1, vmax=1,cmap="coolwarm")
 
 # %%
-serie_delta1_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp", "Delta")
-serie_delta2_m = media_mensual_aritmetic(opt_df_greek_filt_95, "delta_emp_op2", "Delta")
+serie_delta1_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp",     "Delta")
+serie_delta2_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp_op2", "Delta")
 serie_delta3_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp_op3", "Delta")
-serie_gamma1_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp", "Gamma")
-serie_gamma2_m = media_mensual_aritmetic(opt_df_greek_filt_95, "gamma_emp_op2", "Gamma")
+serie_gamma1_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp",     "Gamma")
+serie_gamma2_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp_op2", "Gamma")
 serie_gamma3_m = media_mensual_OI(opt_df_greek_filt_95, "gamma_emp_op3", "Gamma")
 
 
@@ -349,6 +353,175 @@ agregado = pd.DataFrame({
 })
 
 agregado[["Delta1", "Delta2", "Delta3", "Gamma1", "Gamma2", "Gamma3"]].corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas medias aritméticas")
+
+# In[]:
+#######################################################################################
+# Análisis 4: Formas de cálculo de frecuencias mensuales de las sensibilidades empíricas
+#######################################################################################
+"""
+Para este análsis parto del df ya filtrado por ambas colas al 5% de los datos.
+"""
+# Opción 1: Media mensual ponderada por OI (ya calculada en serie_delta_m y serie_gamma_m)
+    #valores en el dataframe: agregado
+
+# Opción 2: Como diferencia entre el primer día del mes y el último día del mes.
+    # Nos permite capturar el cambio en información del mercado, tanto por OI como por sensibilidades (pendiente ver variantes relacionadas para aislar efectos)
+opt_df_greek_filt_95["YearMonth"] = opt_df_greek_filt_95["Date"].dt.to_period("M")
+
+"""
+Necesitamos agrupar todas las sensibilidades para ese día, haciendo por ejemplo la media por OI:
+1: Partimos de que las opciones de este bucket de tiempo a vencimiento son homogéneas en cuanto a su efecto temporal.
+2: Calculamos una griega promedio del día por OI.
+3: Empleamos la diferencia entre final y principio de mes para obtener la frecuencia mensual. (Se están metiendo los cambios tanto en OI como en precio)
+
+"""
+
+
+# In[]:
+
+data_example = opt_df_greek_filt_95.sort_values(by="Date")
+data_example = data_example.groupby("YearMonth")
+
+
+def last_minus_first(arr):
+    return arr.iloc[-1] - arr.iloc[0]
+
+data_example["delta_emp"].agg(last_minus_first)
+
+
+
+# In[]:
+
+def diferencia_mensual_OI(df, greek_emp, greek_teo):
+    """
+    1. OI-weighted mean por (Date, CallPut)  → serie diaria
+    2. last-minus-first por (YearMonth, CallPut) → frecuencia mensual
+    """
+    resultados_diarios = []
+
+    for (date, cp), grupo in df.groupby(["Date", "CallPut"]):
+        grupo_valid = grupo[grupo[greek_emp].notna() & grupo[greek_teo].notna()].copy()
+        if grupo_valid.empty:
+            continue
+
+        oi = grupo_valid["OpenInterest"]
+        if oi.sum() == 0:
+            continue
+
+        resultados_diarios.append({
+            "Date":      date,
+            "YearMonth": grupo_valid["YearMonth"].iloc[0],
+            "CallPut":   cp,
+            greek_emp:   (oi * grupo_valid[greek_emp]).sum() / oi.sum(),
+            greek_teo:   (oi * grupo_valid[greek_teo]).sum() / oi.sum(),
+        })
+
+    daily = pd.DataFrame(resultados_diarios).sort_values("Date")
+
+    # Paso 2: last - first por mes
+    resultados_mensuales = []
+    for (ym, cp), grupo in daily.groupby(["YearMonth", "CallPut"]):
+        if len(grupo) < 2:
+            continue
+        resultados_mensuales.append({
+            "YearMonth": ym,
+            "CallPut":   cp,
+            greek_emp:   ((grupo[greek_emp].iloc[-1] - grupo[greek_emp].iloc[0])),
+            greek_teo:   ((grupo[greek_teo].iloc[-1] - grupo[greek_teo].iloc[0])),
+        })
+
+    df_out = pd.DataFrame(resultados_mensuales)
+    df_out["Date"] = df_out["YearMonth"].dt.to_timestamp()
+    return df_out
+
+
+serie_delta_diff = diferencia_mensual_OI(opt_df_greek_filt_95, "delta_emp", "Delta")
+serie_gamma_diff = diferencia_mensual_OI(opt_df_greek_filt_95, "gamma_emp", "Gamma")
+
+
+fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+
+for cp, ax in zip(["C", "P"], axes):
+    data_cp = serie_delta_diff[serie_delta_diff["CallPut"] == cp].sort_values("Date")
+    ax.plot(data_cp["Date"], data_cp["delta_emp"], color="steelblue", linewidth=1.0, label="Delta empírica")
+    ax.plot(data_cp["Date"], data_cp["Delta"],     color="firebrick",  linewidth=1.0, label="Delta BS", alpha=0.8)
+    ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+    ax.set_title(f"Delta — {'Call' if cp == 'C' else 'Put'} (Variación Mensual relativa (media diaria) para todo el moneyness)")
+    ax.xaxis.set(major_locator=mdates.YearLocator(1),
+             major_formatter=mdates.DateFormatter("%Y"))
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+fig.suptitle("Serie temporal mensual — Delta empírica vs BS", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+# ---- Gráfico Gamma ----
+fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+
+for cp, ax in zip(["C", "P"], axes):
+    data_cp = serie_gamma_diff[serie_gamma_diff["CallPut"] == cp].sort_values("Date")
+    ax.plot(data_cp["Date"], data_cp["gamma_emp"], color="darkorange", linewidth=1.0, label="Gamma empírica")
+    ax.plot(data_cp["Date"], data_cp["Gamma"],     color="firebrick",  linewidth=1.0, label="Gamma BS", alpha=0.8)
+    ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+    ax.set_title(f"Gamma — {'Call' if cp == 'C' else 'Put'} (media aritmética para todo el moneyness)")
+    ax.xaxis.set(major_locator=mdates.YearLocator(1),
+             major_formatter=mdates.DateFormatter("%Y"))
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+fig.suptitle("Serie temporal mensual — Gamma empírica vs BS", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+# In[]:
+#serie_gamma_diff[["gamma_emp","Gamma"]].corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas con diferencia en media diaria a inicio y final del mes")
+serie_gamma_diff["gamma_emp"].autocorr(lag=1)
+
+from statsmodels.tsa.stattools import adfuller, acf
+
+# ADF test
+serie_calls = serie_gamma_diff[serie_gamma_diff["CallPut"] == "C"]["gamma_emp"].dropna()
+adf_result = adfuller(serie_calls)
+print(f"ADF statistic: {adf_result[0]:.4f}")
+print(f"p-value: {adf_result[1]:.4f}")
+
+# ACF hasta lag 12 para ver si hay estacionalidad
+acf_vals = acf(serie_calls, nlags=12)
+print(acf_vals)
+# In[]:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # %%
 #####################################################################################
