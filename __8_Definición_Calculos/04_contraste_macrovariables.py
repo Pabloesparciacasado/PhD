@@ -265,6 +265,8 @@ def media_mensual_aritmetic(df, greek_emp, greek_teo):
 serie_delta_m = media_mensual_aritmetic(opt_df_greek_filt_95, "delta_emp", "Delta")
 serie_gamma_m = media_mensual_aritmetic(opt_df_greek_filt_95, "gamma_emp", "Gamma")
 
+# In[]
+
 
 # ---- Gráfico Delta ----
 fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
@@ -304,32 +306,9 @@ plt.show()
 # %%
 
 #######################################################################################
-# Análisis 3: Correlaciones sensibilidades empíricas vs teóricas
+# Análisis 3: Correlaciones sensibilidades empíricas vs teóricas y análsis de autocorrelaciones
 #######################################################################################
 
-#"solo printeamos"
-
-import seaborn as sns
-corr_greeks = opt_df_greek_filt_95[["delta_emp","delta_emp_op2","delta_emp_op3", "Delta", "gamma_emp", "gamma_emp_op2","gamma_emp_op3","Gamma"]].corr(method="pearson")
-
-
-corr_greeks.style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones sensibilidades empíricas vs teóricas")
-plt.figure(figsize=(8, 6))
-sns.heatmap(corr_greeks, annot=True, vmin=-1, vmax=1)
-plt.title("Correlaciones sensibilidades empíricas vs teóricas")
-plt.show()
-
-# %%
-
-corr_greeks.style.highlight_quantile(
-    axis=None,
-    q_left=0.75,
-    q_right=1,
-    props="font-weight:bold;color:#4fc8d1")
-# %%
-corr_greeks.style.background_gradient(vmin=-1, vmax=1,cmap="coolwarm")
-
-# %%
 serie_delta1_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp",     "Delta")
 serie_delta2_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp_op2", "Delta")
 serie_delta3_m = media_mensual_OI(opt_df_greek_filt_95, "delta_emp_op3", "Delta")
@@ -352,7 +331,19 @@ agregado = pd.DataFrame({
     "Gamma3": serie_gamma3_m["gamma_emp_op3"]
 })
 
-agregado[["Delta1", "Delta2", "Delta3", "Gamma1", "Gamma2", "Gamma3"]].corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas medias aritméticas")
+agregado[["Delta1", "Delta2", "Delta3", "Gamma1", "Gamma2", "Gamma3"]].corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas medias ponderadas por OI")
+from statsmodels.tsa.stattools import adfuller, acf
+# In[]:
+# ADF test
+serie_calls = agregado[agregado["CallPut"] == "C"]["Gamma1"].dropna()
+adf_result = adfuller(serie_calls)
+print(f"ADF statistic: {adf_result[0]:.4f}")
+print(f"p-value: {adf_result[1]:.4f}")
+
+# ACF hasta lag 12 para ver si hay estacionalidad
+acf_vals = acf(serie_calls, nlags=12)
+print(acf_vals)
+
 
 # In[]:
 #######################################################################################
@@ -366,7 +357,6 @@ Para este análsis parto del df ya filtrado por ambas colas al 5% de los datos.
 
 # Opción 2: Como diferencia entre el primer día del mes y el último día del mes.
     # Nos permite capturar el cambio en información del mercado, tanto por OI como por sensibilidades (pendiente ver variantes relacionadas para aislar efectos)
-opt_df_greek_filt_95["YearMonth"] = opt_df_greek_filt_95["Date"].dt.to_period("M")
 
 """
 Necesitamos agrupar todas las sensibilidades para ese día, haciendo por ejemplo la media por OI:
@@ -375,22 +365,7 @@ Necesitamos agrupar todas las sensibilidades para ese día, haciendo por ejemplo
 3: Empleamos la diferencia entre final y principio de mes para obtener la frecuencia mensual. (Se están metiendo los cambios tanto en OI como en precio)
 
 """
-
-
-# In[]:
-
-data_example = opt_df_greek_filt_95.sort_values(by="Date")
-data_example = data_example.groupby("YearMonth")
-
-
-def last_minus_first(arr):
-    return arr.iloc[-1] - arr.iloc[0]
-
-data_example["delta_emp"].agg(last_minus_first)
-
-
-
-# In[]:
+opt_df_greek_filt_95["YearMonth"] = opt_df_greek_filt_95["Date"].dt.to_period("M")
 
 def diferencia_mensual_OI(df, greek_emp, greek_teo):
     """
@@ -438,6 +413,17 @@ def diferencia_mensual_OI(df, greek_emp, greek_teo):
 serie_delta_diff = diferencia_mensual_OI(opt_df_greek_filt_95, "delta_emp", "Delta")
 serie_gamma_diff = diferencia_mensual_OI(opt_df_greek_filt_95, "gamma_emp", "Gamma")
 
+agregado_diff = pd.DataFrame({
+    "YearMonth": serie_delta_diff["YearMonth"],
+    "CallPut": serie_delta_diff["CallPut"],
+    "DeltaT": serie_delta_diff["Delta"],
+    "Delta1": serie_delta_diff["delta_emp"],
+    "GammaT": serie_gamma_diff["Gamma"],
+    "Gamma1": serie_gamma_diff["gamma_emp"]
+})
+
+
+
 
 fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
 
@@ -475,8 +461,8 @@ plt.tight_layout()
 plt.show()
 
 # In[]:
-#serie_gamma_diff[["gamma_emp","Gamma"]].corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas con diferencia en media diaria a inicio y final del mes")
-serie_gamma_diff["gamma_emp"].autocorr(lag=1)
+
+serie_gamma_diff[["gamma_emp","Gamma"]].corr(method="pearson").style.text_gradient(vmin=-1, vmax=1,cmap="coolwarm").set_caption("Correlaciones con teóricas con diferencia en media diaria a inicio y final del mes")
 
 from statsmodels.tsa.stattools import adfuller, acf
 
