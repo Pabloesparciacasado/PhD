@@ -35,9 +35,18 @@ En un análisis adicional **Análisis 3** muestro una tabla de correlaciones que
 
 ## Análisis 4: Construcción sensibilidad mensual:
 
-En el análisis 2, calculé la media mensual ponderada por OI. (HECHO)
+- 0: En el análisis 2, calculé la media mensual ponderada por OI. (HECHO)
+
+    Aquí veríamos que claramente la serie no es estacionaria, y tiene una larga memoria.
 
 - A: Podríase calcular la griega agregada con frecuecia mensual como diferencia de la media del día 1 y final de mes. (HECHO)
+
+        Vemos aquí que la serie es estacionaria. Siendo esta primera diferencia muestra de ningún tipo de autocorrelación. 
+
+        Adicionalmente, veo la correlación con la medida de 0 (como primera diferencia) y la de A
+
+    ¿Podría estar sujeo a ruido, ya que depende del dato diario?
+    ¿Podría extender el análisis a algo parecido a lo de Barbon y controlar por efectos de volumen, precio...?
 
 - B: Asimismo también podría coger únicamente el último día del mes. (PENDIENTE)
 
@@ -46,8 +55,12 @@ En el análisis 2, calculé la media mensual ponderada por OI. (HECHO)
 
 - D. Quizá sería conveniente en calcular las griegas directamente sobre la frecuencia mensual. Es decir, cogiendo día 1 y 31 y hacer las diferencias sobre los precios en estas fechas. Ya que la ocpción A y se basaría en el calculo de la variación con el día anterior. (PENDIENTE)
 
-Para cada una de las opciones, vemos correlaciones con las griegas de BS.
+- E: Para cada calculo una medida de "greek" imbalance al estilo Barbon(2020) y calculo la frecuencia mensual como en A.
 
+
+
+
+Para cada una de las opciones, vemos correlaciones con las griegas de BS.
 Y saco las autocorrelaciones, y test de ADF
 
 ## Análisis 5: Cobertura
