@@ -806,14 +806,7 @@ datadiario["Avg_DolarVolume_t-1"] = (datadiario
                                      )
 print(datadiario.head(30))
 
-# In[]:
-d = 21
-for i in range(d-1,len(datac["Date"].unique()),d):
-    print(i)
-    #print(datac.iloc[i]["Date"])
 
-# In[]:
-data["Date"]
 
 # %%
 #####################################################################################
