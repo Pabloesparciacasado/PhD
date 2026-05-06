@@ -57,13 +57,14 @@ En un análisis adicional **Análisis 3** muestro una tabla de correlaciones que
 
 - E: Para cada calculo una medida de "greek" imbalance al estilo Barbon(2020) y calculo la frecuencia mensual como en A.
 
+    Punto positivo de esto es que tengo ya una medida agregada por call y put
+
 
 
 
 Para cada una de las opciones, vemos correlaciones con las griegas de BS.
 Y saco las autocorrelaciones, y test de ADF
 
-## Análisis 5: Cobertura
 
-Ya tenemos el análisis de cobertura por moneyness y días no cubiertos para los datos diarios.
-Aplico el mismo análisis para la cobertura mensual.
+
+*Nota: Poner el filtro por outliers tras el calculo de las gammas y deltas ponderadas.

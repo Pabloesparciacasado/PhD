@@ -24,19 +24,16 @@ else:
 print("Cargando datos...")
 opt_df_greek = pd.read_parquet(PATH_DATA_OPT)
 
-
 print(opt_df_greek.info())
 print(opt_df_greek.describe())
 print(opt_df_greek.isnull().sum())
 
+
 #Nos quedamos con los datos del bucket de vencimiento 15-45 días y delta no NaN:
 
-opt_df_greek_filt = opt_df_greek[(opt_df_greek["maturity_bucket"] == '(0.0, 15.0]') & (opt_df_greek["delta_emp"].notna()) & (opt_df_greek["gamma_emp"].notna())]
+opt_df_greek_filt = opt_df_greek[(opt_df_greek["maturity_bucket"] == '(15.0, 45.0]') & (opt_df_greek["delta_emp"].notna()) & (opt_df_greek["gamma_emp"].notna())]
 
-opt_df_greek_filt
-
-
-
+# %%
 #####################################################################################
 # Análisis 1: Descripción de las variables empíricas vs teóricas por tipo de opción
 #####################################################################################
@@ -776,6 +773,7 @@ plt.show()
 
 
 # In[]:
+###################################################################################################
 # Opción 3: Para cada calculo una medida de "greek" imbalance al estilo Barbon(2020)
 
 """
@@ -784,39 +782,399 @@ plt.show()
 3: La suma de todos los puntos ponderados por call y puts, se dividen por el dollar volume medio del mes anterior (21 business days) y se multiplica por el underlying
 R: Se obtiene una medida de ka cantidad que se necesita cubrir ante un 1% de cambio en el underlying como fracción del volumen medio del mes anterior.
 """
-# Paso 1: Calculo el dollar volume como una rolling window de 21 días. Aquí uso business days porque es la frencuencia del la que disponemos datos, mientras que el time to maturity en opciones está expresado en calendar days.
 
-#def greek_imbalance(data, d):
+def greek_net_exposure(data, greek: str, rolling_days: int, empirical: bool = True) -> pd.DataFrame:
+    """
+    Calcula el net exposure diario de una greek empírica (delta o gamma) normalizado
+    por el volumen medio del período anterior, siguiendo la metodología de Soebhag (2023)
+    y Barbon & Buraschi (2021).
 
-data = opt_df_greek_filt_95.sort_values(by = "Date",ascending=False)
-def rolling_window_21_mean(group):
-    return group.rolling(21).mean()
+    La medida resultante representa la cantidad neta que los dealers necesitan cubrir
+    ante un 1% de movimiento en el subyacente, expresada como fracción del volumen
+    medio diario del período anterior (semielasticidad).
 
-datadiario = (opt_df_greek_filt_95
-    .groupby(by=["CallPut","Date"])["DolarVolume"]
-    .mean()
-    .reset_index()
-    .sort_values(["CallPut","Date"])
+    Las posiciones en puts se asumen vendidas (signo negativo), reflejando que los
+    dealers son contrapartida neta de los compradores de protección.
+
+    Parámetros
+    ----------
+    data : pd.DataFrame
+        DataFrame con observaciones a nivel contrato. Debe contener las columnas:
+        'Date', 'CallPut', 'OpenInterest', 'SpotPrice', 'DolarVolume',
+        'delta_emp' (si greek='delta') o 'gamma_emp' (si greek='gamma').
+    greek : str
+        Greek a calcular. Opciones: 'delta' o 'gamma'.
+    rolling_days : int
+        Número de días de trading para la ventana móvil del volumen medio (típicamente 21,
+        equivalente a 1 mes de trading).
+    empirical : bool, optional
+        Si True (default), usa la greek empírica ('delta_emp', 'gamma_emp').
+        Si False, usa la greek teórica de Black-Scholes ('Delta', 'Gamma').
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame diario con las columnas:
+        - Date: fecha.
+        - DolarVolume: volumen medio diario en dólares del día t.
+        - Avg_DolarVolume_t-1: media móvil del volumen de los rolling_days anteriores.
+        - Gamma_Exposure / Delta_Exposure: net exposure normalizado.
+          Para gamma: sum(gamma_i * OI_i * S²) / (100² * AvgDolVol).
+          Para delta: sum(delta_i * OI_i * S)  / (100  * AvgDolVol).
+        - SpotPrice: precio del subyacente en t.
+
+    Nota
+    -----
+    - El volumen medio se calcula sobre todos los contratos (calls y puts conjuntamente)
+      como media aritmética diaria, dado que representa la liquidez global del mercado.
+    """
+
+    data = data.copy()
+
+    def rolling_mean(group):
+        return group.rolling(rolling_days).mean()
+
+    # Volumen medio rolling
+    datadiario = (data
+        .groupby("Date")["DolarVolume"]
+        .mean()
+        .reset_index()
+    )
+    datadiario["Avg_DolarVolume_t-1"] = datadiario["DolarVolume"].transform(rolling_mean)
+
+    # Configuración por greek
+    if greek == "gamma":
+        greek_col    = "gamma_emp" if empirical else "Gamma"
+        exposure_col = "Gamma_Exposure" if empirical else "BS_Gamma_Exposure"
+        scale        = 100**2
+        
+        data[exposure_col] = np.where(
+            data["CallPut"] == "C",
+            data[greek_col] * data["OpenInterest"] * data["SpotPrice"],
+            data[greek_col] * data["OpenInterest"] * data["SpotPrice"] * (-1)
+            )
+
+    elif greek == "delta":
+        greek_col    = "delta_emp" if empirical else "Delta"
+        exposure_col = "Delta_Exposure" if empirical else "BS_Delta_Exposure"
+        scale        = 100
+
+        data[exposure_col] = np.where(
+            data["CallPut"] == "C",
+            data[greek_col] * data["OpenInterest"],
+            data[greek_col] * data["OpenInterest"]* (-1)
+            )
+    else:
+        raise ValueError(f"greek debe ser 'gamma' o 'delta', recibido: {greek}")
+
+    # Spot diario
+    spot_diario = data[["Date", "SpotPrice"]].drop_duplicates("Date")
+
+    # Agregación diaria
+    df = (data.groupby("Date")[exposure_col]
+        .sum()
+        .reset_index()
+        .sort_values("Date")
+        .merge(spot_diario,  on="Date", how="left")
+        .merge(datadiario,   on="Date", how="left")
+        .dropna()
+        .reset_index(drop=True)
+    )
+
+    # Normalización: exposure * S / (scale * AvgDolVol)
+    df[exposure_col] = df[exposure_col] * df["SpotPrice"] / (scale*df["Avg_DolarVolume_t-1"])
+
+    return df[["Date", "DolarVolume", "Avg_DolarVolume_t-1", exposure_col, "SpotPrice"]]
+
+def diferencia_mensual(df:pd.DataFrame, greek_emp:str, greek_teo = None) -> pd.DataFrame:
+    """
+    1. OI-weighted mean por (Date, CallPut)  → serie diaria
+    2. last-minus-first por (YearMonth, CallPut) → frecuencia mensual
+    """
+
+    df["YearMonth"] = df["Date"].dt.to_period("M")
+
+    df = pd.DataFrame(df).sort_values("Date")
+
+    # Paso 2: last - first por mes
+    resultados_mensuales = []
+    for ym, grupo in df.groupby("YearMonth"):
+        if len(grupo) < 2:
+            continue
+        resultados_mensuales.append({
+            "YearMonth": ym,
+            greek_emp:   ((grupo[greek_emp].iloc[-1] - grupo[greek_emp].iloc[0])),
+            greek_teo:   ((grupo[greek_teo].iloc[-1] - grupo[greek_teo].iloc[0])),
+        })
+
+    df_out = pd.DataFrame(resultados_mensuales)
+    df_out["Date"] = df_out["YearMonth"].dt.to_timestamp()
+    return df_out
+
+# %%
+net_exposure = pd.DataFrame({
+    "Date":              (greek_net_exposure(opt_df_greek_filt_95, "delta", 21))["Date"],
+    "Delta_Exposure":    (greek_net_exposure(opt_df_greek_filt_95, "delta", 21))["Delta_Exposure"],
+    "BS_Delta_Exposure": (greek_net_exposure(opt_df_greek_filt_95, "delta", 21, empirical=False))["BS_Delta_Exposure"],
+    "Gamma_Exposure":    (greek_net_exposure(opt_df_greek_filt_95, "gamma", 21))["Gamma_Exposure"],
+    "BS_Gamma_Exposure": (greek_net_exposure(opt_df_greek_filt_95, "gamma", 21, empirical=False))["BS_Gamma_Exposure"],
+})
+
+
+net_exposure_gamma_m = diferencia_mensual(net_exposure,"Gamma_Exposure", "BS_Gamma_Exposure")
+net_exposure_delta_m = diferencia_mensual(net_exposure,"Delta_Exposure", "BS_Delta_Exposure")
+
+net_exposure_m = pd.DataFrame({
+    "Date":           net_exposure_delta_m["Date"],
+    "Delta_Exposure_m":    net_exposure_delta_m["Delta_Exposure"],
+    "BS_Delta_Exposure_m": net_exposure_delta_m["BS_Delta_Exposure"],
+    "Gamma_Exposure_m":    net_exposure_gamma_m["Gamma_Exposure"],
+    "BS_Gamma_Exposure_m": net_exposure_gamma_m["BS_Gamma_Exposure"],
+})
+net_exposure_m
+
+# In[]:
+
+########################
+# Graficamos
+########################
+
+fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+
+ax.plot(net_exposure_m["Date"], net_exposure_m["Delta_Exposure_m"], color="steelblue", linewidth=1.0, label="Delta empírica")
+ax.plot(net_exposure_m["Date"], net_exposure_m["BS_Delta_Exposure_m"], color="firebrick", linewidth=1.0, label="Delta BS", alpha=0.8)
+ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+ax.set_title(
+    "Delta Net Exposure mensual\n"
+    "(fracción del volumen medio mensual a cubrir ante un movimiento del 1% en el subyacente)"
 )
-datadiario
+ax.xaxis.set(major_locator=mdates.MonthLocator(bymonth=[1, 6]),
+             major_formatter=mdates.DateFormatter("%Y-%m"))
+plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+ax.legend()
+ax.grid(True, alpha=0.3)
 
-datadiario["Avg_DolarVolume_t-1"] = (datadiario
-                                     .groupby(by="CallPut")["DolarVolume"]
-                                     .transform(rolling_window_21_mean)
-                                     )
-print(datadiario.head(30))
+fig.suptitle("Serie temporal mensual — Delta empírica vs BS", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+# ---- Gráfico Gamma ----
+
+
+fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+
+ax.plot(net_exposure_m["Date"], net_exposure_m["Gamma_Exposure_m"], color="steelblue", linewidth=1.0, label="Gamma empírica")
+ax.plot(net_exposure_m["Date"], net_exposure_m["BS_Gamma_Exposure_m"], color="firebrick", linewidth=1.0, label="Gamma BS", alpha=0.8)
+ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+ax.set_title(
+    "Gamma Net Exposure mensual\n"
+    "(fracción del volumen medio mensual a cubrir ante un movimiento del 1% en el subyacente)"
+)
+ax.xaxis.set(major_locator=mdates.MonthLocator(bymonth=[1, 6]),
+             major_formatter=mdates.DateFormatter("%Y-%m"))
+plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+fig.suptitle("Serie temporal mensual — Gamma empírica vs BS", fontsize=13)
+plt.tight_layout()
+plt.show()
+# %%
+
+########################
+# Graficamos
+########################
+
+fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+
+ax.plot(net_exposure_m["Date"], net_exposure_m["Delta_Exposure_m"], color="steelblue", linewidth=1.0, label="Delta empírica")
+ax.plot(net_exposure_m["Date"], net_exposure_m["BS_Delta_Exposure_m"], color="firebrick", linewidth=1.0, label="Delta BS", alpha=0.8)
+ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+ax.set_title(
+    "Delta Net Exposure mensual\n"
+    "(fracción del volumen medio mensual a cubrir ante un movimiento del 1% en el subyacente)"
+)
+ax.xaxis.set(major_locator=mdates.MonthLocator(bymonth=[1, 6]),
+             major_formatter=mdates.DateFormatter("%Y-%m"))
+plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+fig.suptitle("Serie temporal mensual — Delta empírica vs BS", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+# ---- Gráfico Gamma ----
+
+
+fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+
+ax.plot(net_exposure_m["Date"], net_exposure_m["Gamma_Exposure_m"], color="steelblue", linewidth=1.0, label="Gamma empírica")
+ax.plot(net_exposure_m["Date"], net_exposure_m["BS_Gamma_Exposure_m"], color="firebrick", linewidth=1.0, label="Gamma BS", alpha=0.8)
+ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+ax.set_title(
+    "Gamma Net Exposure mensual\n"
+    "(fracción del volumen medio mensual a cubrir ante un movimiento del 1% en el subyacente)"
+)
+ax.xaxis.set(major_locator=mdates.MonthLocator(bymonth=[1, 6]),
+             major_formatter=mdates.DateFormatter("%Y-%m"))
+plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+fig.suptitle("Serie temporal mensual — Gamma empírica vs BS", fontsize=13)
+plt.tight_layout()
+plt.show()
+# %%
+
+
+########################
+# Graficamos2
+########################
+
+tramos = [("2003-01", "2015-12"), ("2016-01", "2025-12")]
+
+def plot_exposure(df, col_emp, col_bs, label_emp, label_bs, titulo, supertitulo, tramos):
+    for t_ini, t_fin in tramos:
+        data_tramo = df[(df["Date"] >= t_ini) & (df["Date"] <= t_fin)]
+        
+        fig, ax = plt.subplots(1, 1, figsize=(14, 6))
+        ax.plot(data_tramo["Date"], data_tramo[col_emp], color="steelblue", linewidth=1.0, label=label_emp)
+        ax.plot(data_tramo["Date"], data_tramo[col_bs],  color="firebrick",  linewidth=1.0, label=label_bs, alpha=0.8)
+        ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+        ax.set_title(f"{titulo}\n({t_ini} — {t_fin})")
+        ax.xaxis.set(major_locator=mdates.MonthLocator(bymonth=[1, 6]),
+                     major_formatter=mdates.DateFormatter("%Y-%m"))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        fig.suptitle(supertitulo, fontsize=13)
+        plt.tight_layout()
+        plt.show()
+
+
+# ---- Delta ----
+plot_exposure(
+    df         = net_exposure_m,
+    col_emp    = "Delta_Exposure_m",
+    col_bs     = "BS_Delta_Exposure_m",
+    label_emp  = "Delta empírica",
+    label_bs   = "Delta BS",
+    titulo     = "Delta Net Exposure mensual\n(fracción del volumen medio mensual a cubrir ante un movimiento del 1% en el subyacente)",
+    supertitulo= "Serie temporal mensual — Delta empírica vs BS",
+    tramos     = tramos
+)
+
+# ---- Gamma ----
+plot_exposure(
+    df         = net_exposure_m,
+    col_emp    = "Gamma_Exposure_m",
+    col_bs     = "BS_Gamma_Exposure_m",
+    label_emp  = "Gamma empírica",
+    label_bs   = "Gamma BS",
+    titulo     = "Gamma Net Exposure mensual\n(fracción del volumen medio mensual a cubrir ante un movimiento del 1% en el subyacente)",
+    supertitulo= "Serie temporal mensual — Gamma empírica vs BS",
+    tramos     = tramos
+)
+
+
+# %%
+from statsmodels.tsa.stattools import adfuller, acf, arma_order_select_ic
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from tabulate import tabulate
+
+def diagnostico_serie_temporal(serie, nombre):
+    """
+    ADF test, ACF, PACF y selección de orden ARMA para una serie temporal.
+    """
+    serie = serie.dropna()
+
+    print(f"\n{'='*60}")
+    print(f"DIAGNÓSTICO — {nombre}")
+    print(f"{'='*60}")
+
+    # ADF test
+    adf_result = adfuller(serie, regression="c")
+    print(f"ADF statistic : {adf_result[0]:.4f}")
+    print(f"p-value       : {adf_result[1]:.4f}")
+    print("Critical Values:")
+    print(tabulate([adf_result[4]], headers="keys", tablefmt="grid"))
+
+    # ACF y PACF
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8))
+    plot_acf(serie, ax=axes[0], lags=48, alpha=0.05,
+             use_vlines=True, fft=True, title=f"ACF — {nombre}",
+             zero=False, bartlett_confint=True)
+    plot_pacf(serie, ax=axes[1], lags=48, alpha=0.05,
+              method="ols", use_vlines=True,
+              title=f"PACF — {nombre}", zero=False)
+    plt.tight_layout()
+    plt.show()
+
+    # Selección de orden ARMA
+    min_order = arma_order_select_ic(serie, max_ar=4, max_ma=2, ic="bic", trend="n")
+    print(f"Orden ARMA óptimo (BIC):")
+    print(min_order.bic)
+
+
+# ============================================================
+# EJECUCIÓN
+# ============================================================
+
+diagnostico_serie_temporal(net_exposure_m["Delta_Exposure_m"],    "Delta Net Exposure — Empírica")
+diagnostico_serie_temporal(net_exposure_m["BS_Delta_Exposure_m"],  "Delta Net Exposure — BS")
+diagnostico_serie_temporal(net_exposure_m["Gamma_Exposure_m"],     "Gamma Net Exposure — Empírica")
+diagnostico_serie_temporal(net_exposure_m["BS_Gamma_Exposure_m"],  "Gamma Net Exposure — BS")
+
+# %%
+
+
+#####################################################################################
+# Análisis 4: Comparación con variables macro:
+#####################################################################################
+"""
+Contrasto la opción última (D en el documento) y A. Al ser ya estacionarias y no necesita controlar por autocorrlación (como el vix)
+Selección de variables:
+
+
+"""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 # %%
-#####################################################################################
-# Análisis 4: Descomposición vanna/charm — brecha entre gamma realizada y BS
-#####################################################################################
 
-
-# %%
 #####################################################################################
-# Análisis 4: Descomposición vanna/charm — brecha entre gamma realizada y BS
+# Análisis 5: Descomposición vanna/charm — brecha entre gamma realizada y BS
 #####################################################################################
 
 serie_greek_95 = opt_df_greek_filt_95.merge(agregado[["YearMonth", "CallPut"]], on=["YearMonth", "CallPut"], how="left")
