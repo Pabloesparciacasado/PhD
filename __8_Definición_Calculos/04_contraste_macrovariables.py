@@ -535,7 +535,7 @@ serie_delta_diff = diferencia_mensual_OI(opt_df_greek_filt_95, "delta_emp", "Del
 serie_gamma_diff = diferencia_mensual_OI(opt_df_greek_filt_95, "gamma_emp", "Gamma")
 
 agregado_diff = pd.DataFrame({
-    "YearMonth": serie_delta_diff["YearMonth"],
+    "YearMonth": serie_delta_diff["Date"],
     "CallPut": serie_delta_diff["CallPut"],
     "DeltaT": serie_delta_diff["Delta"],
     "Delta1": serie_delta_diff["delta_emp"],
@@ -1109,6 +1109,8 @@ def diagnostico_serie_temporal(serie, nombre):
               method="ols", use_vlines=True,
               title=f"PACF — {nombre}", zero=False)
     plt.tight_layout()
+    plt.savefig("ejemplo", format="svg", bbox_inches="tight")
+
     plt.show()
 
     # Selección de orden ARMA
@@ -1127,8 +1129,6 @@ diagnostico_serie_temporal(net_exposure_m["Gamma_Exposure_m"],     "Gamma Net Ex
 diagnostico_serie_temporal(net_exposure_m["BS_Gamma_Exposure_m"],  "Gamma Net Exposure — BS")
 
 # %%
-
-
 #####################################################################################
 # Análisis 4: Comparación con variables macro:
 #####################################################################################
@@ -1136,43 +1136,745 @@ diagnostico_serie_temporal(net_exposure_m["BS_Gamma_Exposure_m"],  "Gamma Net Ex
 Contrasto la opción última (D en el documento) y A. Al ser ya estacionarias y no necesita controlar por autocorrlación (como el vix)
 Selección de variables:
 
+1: Comparación con el vix a frecuencia mensual
 
 """
+import yfinance as yf
+
+vix = yf.download("^VIX", start="2003-01-01", end="2025-12-31", interval="1mo")
+# %%
+close_vix_m = vix["Close"]["^VIX"]
+close_vix_m = pd.DataFrame(close_vix_m)
+close_vix_m["Date"] = close_vix_m.index
+close_vix_m["Date"] = close_vix_m["Date"].dt.to_period("M").dt.to_timestamp()
+close_vix_m.rename(columns={"^VIX":"vix"},inplace = True)
+close_vix_m.reset_index(drop=True,inplace = True)
+
+comparativa_vix_A = pd.merge(agregado_diff, close_vix_m, left_on = "YearMonth", right_on="Date", how="left")  ## al reejuctar cambiar a Date
+
+
+########################
+# Gráficos, correlaciones y análisis VIX vs Gamma1 y Delta1
+########################
+
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import seaborn as sns
+
+# Separamos por CallPut
+calls = comparativa_vix_A[comparativa_vix_A["CallPut"] == "C"].copy()
+puts  = comparativa_vix_A[comparativa_vix_A["CallPut"] == "P"].copy()
+
+# Convertimos YearMonth a timestamp si es Period
+for df in [calls, puts]:
+    if hasattr(df["YearMonth"].iloc[0], "to_timestamp"):
+        df["Date_plot"] = df["YearMonth"].dt.to_timestamp()
+    else:
+        df["Date_plot"] = pd.to_datetime(df["YearMonth"].astype(str))
+
+# ============================================================
+# 1. Gráficos serie temporal
+# ============================================================
+
+for greek, col in [("Gamma1", "Gamma1"), ("Delta1", "Delta1")]:
+    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+
+    # Calls
+    ax1 = axes[0]
+    ax1b = ax1.twinx()
+    ax1.plot(calls["Date_plot"], calls[col], color="steelblue", linewidth=0.9, label=f"{greek} Call")
+    ax1b.plot(calls["Date_plot"], calls["vix"], color="firebrick", linewidth=0.9, alpha=0.7, label="VIX")
+    ax1.set_ylabel(greek, color="steelblue")
+    ax1b.set_ylabel("VIX", color="firebrick")
+    ax1.set_title(f"{greek} — Call vs VIX")
+    ax1.legend(loc="upper left")
+    ax1b.legend(loc="upper right")
+    ax1.grid(True, alpha=0.3)
+
+    # Puts
+    ax2 = axes[1]
+    ax2b = ax2.twinx()
+    ax2.plot(puts["Date_plot"], puts[col], color="darkorange", linewidth=0.9, label=f"{greek} Put")
+    ax2b.plot(puts["Date_plot"], puts["vix"], color="firebrick", linewidth=0.9, alpha=0.7, label="VIX")
+    ax2.set_ylabel(greek, color="darkorange")
+    ax2b.set_ylabel("VIX", color="firebrick")
+    ax2.set_title(f"{greek} — Put vs VIX")
+    ax2.legend(loc="upper left")
+    ax2b.legend(loc="upper right")
+    ax2.grid(True, alpha=0.3)
+
+    # Diferencia Call - Put
+    diff = calls[col].values - puts[col].values
+    axes[2].plot(calls["Date_plot"], diff, color="purple", linewidth=0.9, label=f"{greek} Call - Put")
+    ax3b = axes[2].twinx()
+    ax3b.plot(calls["Date_plot"], calls["vix"], color="firebrick", linewidth=0.9, alpha=0.7, label="VIX")
+    axes[2].set_ylabel("Call - Put", color="purple")
+    ax3b.set_ylabel("VIX", color="firebrick")
+    axes[2].set_title(f"{greek} Call - Put vs VIX")
+    axes[2].legend(loc="upper left")
+    ax3b.legend(loc="upper right")
+    axes[2].grid(True, alpha=0.3)
+
+    for ax in axes:
+        ax.xaxis.set(major_locator=mdates.YearLocator(2),
+                     major_formatter=mdates.DateFormatter("%Y"))
+    
+    fig.suptitle(f"Serie temporal mensual — {greek} vs VIX", fontsize=13)
+    plt.tight_layout()
+    plt.show()
+
+# ============================================================
+# 2. Correlaciones
+# ============================================================
+
+print("\n=== Correlaciones con VIX ===")
+for nombre, df in [("Calls", calls), ("Puts", puts)]:
+    corr = df[["Gamma1", "Delta1", "vix"]].corr(method="pearson")
+    print(f"\n--- {nombre} ---")
+    print(tabulate(corr, headers="keys", tablefmt="rounded_outline", floatfmt=".3f"))
+
+# Heatmap
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+for ax, (nombre, df) in zip(axes, [("Calls", calls), ("Puts", puts)]):
+    corr = df[["Gamma1", "Delta1", "vix"]].corr()
+    sns.heatmap(corr, annot=True, fmt=".3f", cmap="coolwarm",
+                vmin=-1, vmax=1, ax=ax)
+    ax.set_title(f"Correlaciones — {nombre}")
+fig.suptitle("Correlaciones Gamma1, Delta1 vs VIX", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+# ============================================================
+# 3. Scatter plots
+# ============================================================
+
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+for i, (greek, col) in enumerate([("Gamma1", "Gamma1"), ("Delta1", "Delta1")]):
+    for j, (nombre, df) in enumerate([("Calls", calls), ("Puts", puts)]):
+        ax = axes[i][j]
+        ax.scatter(df["vix"], df[col], alpha=0.4, s=10,
+                   color="steelblue" if nombre == "Calls" else "darkorange")
+        # Línea de tendencia
+        z = np.polyfit(df["vix"].dropna(), df[col].dropna(), 1)
+        p = np.poly1d(z)
+        x_line = np.linspace(df["vix"].min(), df["vix"].max(), 100)
+        ax.plot(x_line, p(x_line), color="firebrick", linewidth=1.0)
+        ax.set_xlabel("VIX")
+        ax.set_ylabel(col)
+        ax.set_title(f"{greek} — {nombre}")
+        ax.grid(True, alpha=0.3)
+
+fig.suptitle("Scatter — Gamma1 y Delta1 vs VIX", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+
+
+# %%
+comparativa_vix_B = pd.merge(net_exposure_m, close_vix_m, left_on = "Date", right_on="Date", how="left")
+comparativa_vix_B
+
+# %%
+
+########################
+# Gráficos, correlaciones y análisis VIX vs Delta y Gamma Net Exposure
+########################
+
+# ============================================================
+# 1. Gráficos serie temporal
+# ============================================================
+
+for greek, col in [("Delta Net Exposure", "Delta_Exposure_m"), 
+                   ("Gamma Net Exposure", "Gamma_Exposure_m")]:
+    
+    fig, ax = plt.subplots(1, 1, figsize=(14, 6))
+    ax2 = ax.twinx()
+    
+    ax.plot(comparativa_vix_B["Date"], comparativa_vix_B[col], 
+            color="steelblue", linewidth=0.9, label=greek)
+    ax2.plot(comparativa_vix_B["Date"], comparativa_vix_B["vix"], 
+             color="firebrick", linewidth=0.9, alpha=0.7, label="VIX")
+    
+    ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+    ax.set_ylabel(greek, color="steelblue")
+    ax2.set_ylabel("VIX", color="firebrick")
+    ax.set_title(f"{greek} vs VIX")
+    ax.legend(loc="upper left")
+    ax2.legend(loc="upper right")
+    ax.grid(True, alpha=0.3)
+    ax.xaxis.set(major_locator=mdates.YearLocator(2),
+                 major_formatter=mdates.DateFormatter("%Y"))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+    
+    fig.suptitle(f"Serie temporal mensual — {greek} vs VIX", fontsize=13)
+    plt.tight_layout()
+    plt.show()
+
+# ============================================================
+# 2. Correlaciones
+# ============================================================
+
+print("\n=== Correlaciones con VIX ===")
+corr = comparativa_vix_B[["Delta_Exposure_m", "Gamma_Exposure_m", "vix"]].corr(method="pearson")
+print(tabulate(corr, headers="keys", tablefmt="rounded_outline", floatfmt=".3f"))
+
+fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+sns.heatmap(corr, annot=True, fmt=".3f", cmap="coolwarm", vmin=-1, vmax=1, ax=ax)
+ax.set_title("Correlaciones — Delta y Gamma Net Exposure vs VIX")
+plt.tight_layout()
+plt.show()
+
+# ============================================================
+# 3. Scatter plots
+# ============================================================
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+for ax, (greek, col) in zip(axes, [("Delta Net Exposure", "Delta_Exposure_m"),
+                                     ("Gamma Net Exposure", "Gamma_Exposure_m")]):
+    df_clean = comparativa_vix_B[["vix", col]].dropna()
+    ax.scatter(df_clean["vix"], df_clean[col], alpha=0.4, s=10, color="steelblue")
+    z = np.polyfit(df_clean["vix"], df_clean[col], 1)
+    p = np.poly1d(z)
+    x_line = np.linspace(df_clean["vix"].min(), df_clean["vix"].max(), 100)
+    ax.plot(x_line, p(x_line), color="firebrick", linewidth=1.0)
+    ax.set_xlabel("VIX")
+    ax.set_ylabel(col)
+    ax.set_title(f"{greek} vs VIX")
+    ax.grid(True, alpha=0.3)
+
+fig.suptitle("Scatter — Delta y Gamma Net Exposure vs VIX", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+
+# %%
+
+
+"""
+2: variable: CFNAI
+"""
+
+cfnai = pd.read_excel("Y:\Maro-Variables\cfnai.xlsx")
+
+cfnai["YearMonth"] = pd.to_datetime(cfnai["Date"], format="%Y:%m").dt.to_period("M").dt.to_timestamp()
+cfnai["Date"] = pd.to_datetime(cfnai["Date"], format="%Y:%m").dt.to_period("M").dt.to_timestamp()
+
+
+cfnai = cfnai[["YearMonth","Date","CFNAI"]].dropna()
+
+
+comparativa_CFNAI_A = pd.merge(agregado_diff, cfnai, left_on = "YearMonth", right_on="YearMonth", how="left")  ## al reejuctar cambiar a Date
+
+
+
+# %% 
+
+
+########################
+# Gráficos, correlaciones y análisis CFNAI vs Gamma1 y Delta1
+########################
+
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import seaborn as sns
+
+# Separamos por CallPut
+calls = comparativa_CFNAI_A[comparativa_CFNAI_A["CallPut"] == "C"].copy()
+puts  = comparativa_CFNAI_A[comparativa_CFNAI_A["CallPut"] == "P"].copy()
+
+# Convertimos YearMonth a timestamp si es Period
+for df in [calls, puts]:
+    if hasattr(df["YearMonth"].iloc[0], "to_timestamp"):
+        df["Date_plot"] = df["YearMonth"].dt.to_timestamp()
+    else:
+        df["Date_plot"] = pd.to_datetime(df["YearMonth"].astype(str))
+
+# ============================================================
+# 1. Gráficos serie temporal
+# ============================================================
+
+for greek, col in [("Gamma1", "Gamma1"), ("Delta1", "Delta1")]:
+    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+
+    # Calls
+    ax1 = axes[0]
+    ax1b = ax1.twinx()
+    ax1.plot(calls["Date_plot"], calls[col], color="steelblue", linewidth=0.9, label=f"{greek} Call")
+    ax1b.plot(calls["Date_plot"], calls["CFNAI"], color="firebrick", linewidth=0.9, alpha=0.7, label="CFNAI")
+    ax1.set_ylabel(greek, color="steelblue")
+    ax1b.set_ylabel("CFNAI", color="firebrick")
+    ax1.set_title(f"{greek} — Call vs CFNAI")
+    ax1.legend(loc="upper left")
+    ax1b.legend(loc="upper right")
+    ax1.grid(True, alpha=0.3)
+
+    # Puts
+    ax2 = axes[1]
+    ax2b = ax2.twinx()
+    ax2.plot(puts["Date_plot"], puts[col], color="darkorange", linewidth=0.9, label=f"{greek} Put")
+    ax2b.plot(puts["Date_plot"], puts["CFNAI"], color="firebrick", linewidth=0.9, alpha=0.7, label="CFNAI")
+    ax2.set_ylabel(greek, color="darkorange")
+    ax2b.set_ylabel("CFNAI", color="firebrick")
+    ax2.set_title(f"{greek} — Put vs CFNAI")
+    ax2.legend(loc="upper left")
+    ax2b.legend(loc="upper right")
+    ax2.grid(True, alpha=0.3)
+
+    # Diferencia Call - Put
+    diff = calls[col].values - puts[col].values
+    axes[2].plot(calls["Date_plot"], diff, color="purple", linewidth=0.9, label=f"{greek} Call - Put")
+    ax3b = axes[2].twinx()
+    ax3b.plot(calls["Date_plot"], calls["CFNAI"], color="firebrick", linewidth=0.9, alpha=0.7, label="CFNAI")
+    axes[2].set_ylabel("Call - Put", color="purple")
+    ax3b.set_ylabel("CFNAI", color="firebrick")
+    axes[2].set_title(f"{greek} Call - Put vs CFNAI")
+    axes[2].legend(loc="upper left")
+    ax3b.legend(loc="upper right")
+    axes[2].grid(True, alpha=0.3)
+
+    for ax in axes:
+        ax.xaxis.set(major_locator=mdates.YearLocator(2),
+                     major_formatter=mdates.DateFormatter("%Y"))
+    
+    fig.suptitle(f"Serie temporal mensual — {greek} vs VIX", fontsize=13)
+    plt.tight_layout()
+    plt.show()
+
+# ============================================================
+# 2. Correlaciones
+# ============================================================
+
+print("\n=== Correlaciones con CFNAI ===")
+for nombre, df in [("Calls", calls), ("Puts", puts)]:
+    corr = df[["Gamma1", "Delta1", "CFNAI"]].corr(method="pearson")
+    print(f"\n--- {nombre} ---")
+    print(tabulate(corr, headers="keys", tablefmt="rounded_outline", floatfmt=".3f"))
+
+# Heatmap
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+for ax, (nombre, df) in zip(axes, [("Calls", calls), ("Puts", puts)]):
+    corr = df[["Gamma1", "Delta1", "CFNAI"]].corr()
+    sns.heatmap(corr, annot=True, fmt=".3f", cmap="coolwarm",
+                vmin=-1, vmax=1, ax=ax)
+    ax.set_title(f"Correlaciones — {nombre}")
+fig.suptitle("Correlaciones Gamma1, Delta1 vs CFNAI", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+# ============================================================
+# 3. Scatter plots
+# ============================================================
+
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+for i, (greek, col) in enumerate([("Gamma1", "Gamma1"), ("Delta1", "Delta1")]):
+    for j, (nombre, df) in enumerate([("Calls", calls), ("Puts", puts)]):
+        ax = axes[i][j]
+        ax.scatter(df["CFNAI"], df[col], alpha=0.4, s=10,
+                   color="steelblue" if nombre == "Calls" else "darkorange")
+        # Línea de tendencia
+        z = np.polyfit(df["CFNAI"].dropna(), df[col].dropna(), 1)
+        p = np.poly1d(z)
+        x_line = np.linspace(df["CFNAI"].min(), df["CFNAI"].max(), 100)
+        ax.plot(x_line, p(x_line), color="firebrick", linewidth=1.0)
+        ax.set_xlabel("CFNAI")
+        ax.set_ylabel(col)
+        ax.set_title(f"{greek} — {nombre}")
+        ax.grid(True, alpha=0.3)
+
+fig.suptitle("Scatter — Gamma1 y Delta1 vs CFNAI", fontsize=13)
+plt.tight_layout()
+plt.show()
+
+
+# %%
+
+import pandas as pd
+import numpy as np
+from statsmodels.regression.linear_model import OLS
+from statsmodels.tools import add_constant
+from statsmodels.stats.sandwich_covariance import cov_hac
+from tabulate import tabulate
+
+# ============================================================
+# PASO 1: Construir la variable dependiente — Call - Put (neteado)
+# ============================================================
+
+calls = agregado_diff[agregado_diff["CallPut"] == "C"][["YearMonth", "Delta1", "Gamma1"]].copy()
+puts  = agregado_diff[agregado_diff["CallPut"] == "P"][["YearMonth", "Delta1", "Gamma1"]].copy()
+
+net = calls.merge(puts, on="YearMonth", suffixes=("_C", "_P"))
+net["Delta1_net"] = net["Delta1_C"] - net["Delta1_P"]
+net["Gamma1_net"] = net["Gamma1_C"] - net["Gamma1_P"]
+net = net[["YearMonth", "Delta1_net", "Gamma1_net"]]
+
+# ============================================================
+# PASO 2: Cargar variables macroeconómicas
+# ============================================================
+
+PATH = r"Y:\Maro-Variables\\"
+
+# CFNAI — ya lo tienes cargado, frecuencia mensual
+# cfnai ya definido con columnas YearMonth, CFNAI
+
+# CPI — frecuencia mensual
+cpi = pd.read_csv(PATH + "cpi.csv")
+cpi.columns = ["Date", "CPI"]
+cpi["Date"] = pd.to_datetime(cpi["Date"])
+cpi["YearMonth"] = cpi["Date"].dt.to_period("M")
+cpi = cpi.groupby("YearMonth").last().reset_index()  # último día del mes
+cpi["CPI_diff"] = np.log(cpi["CPI"]).diff(1)  # log-diferencia como en Zhang-Olmo
+
+# T10YIE — expectativas de inflación 10 años, frecuencia diaria → último día del mes
+t10yie = pd.read_csv(PATH + "breakeven_10y.csv")
+t10yie.columns = ["Date", "T10YIE"]
+t10yie["Date"] = pd.to_datetime(t10yie["Date"])
+t10yie["YearMonth"] = t10yie["Date"].dt.to_period("M")
+t10yie["YearMonth"] = pd.to_datetime(t10yie["Date"]).dt.to_period("M")
+t10yie = t10yie.groupby("YearMonth").last().reset_index()
+t10yie["T10YIE_diff"] = t10yie["T10YIE"].diff(1)  # primera diferencia como en Zhang-Olmo
+
+# M1/M2 — frecuencia mensual
+m1 = pd.read_csv(PATH + "m1.csv")
+m1.columns = ["Date", "M1"]
+m1["Date"] = pd.to_datetime(m1["Date"])
+m1["YearMonth"] = m1["Date"].dt.to_period("M")
+m1 = m1.groupby("YearMonth").last().reset_index()
+
+m2 = pd.read_csv(PATH + "m2.csv")
+m2.columns = ["Date", "M2"]
+m2["Date"] = pd.to_datetime(m2["Date"])
+m2["YearMonth"] = m2["Date"].dt.to_period("M")
+m2 = m2.groupby("YearMonth").last().reset_index()
+
+m1m2 = m1.merge(m2, on="YearMonth", how="inner")
+m1m2["M1M2"] = m1m2["M1"] / m1m2["M2"]
+m1m2["M1M2_diff"] = m1m2["M1M2"].diff(1)  # primera diferencia como en Zhang-Olmo
+
+# VIX mensual — ya lo tienes como close_vix_m
+# Aseguramos YearMonth
+vix = close_vix_m.copy()
+vix["YearMonth"] = pd.to_datetime(vix["Date"]).dt.to_period("M")
+vix = vix.rename(columns={"vix": "VIX"})
 
 
 
 
+#
+# ============================================================
+# PASO 3: Merge de todas las variables
+# ============================================================
+# Fuerza todo a string YYYY-MM antes del merge
+net["YearMonth"]    = net["YearMonth"].astype(str).str[:7]
+cfnai["YearMonth"]  = cfnai["YearMonth"].astype(str).str[:7]
+cpi["YearMonth"]    = cpi["YearMonth"].astype(str).str[:7]
+t10yie["YearMonth"] = t10yie["YearMonth"].astype(str).str[:7]
+m1m2["YearMonth"]   = m1m2["YearMonth"].astype(str).str[:7]
+vix["YearMonth"]    = vix["YearMonth"].astype(str).str[:7]
+
+# Ahora el merge funciona sobre strings homogéneos
+macro = (net
+    .merge(cfnai[["YearMonth", "CFNAI"]],       on="YearMonth", how="left")
+    .merge(cpi[["YearMonth", "CPI_diff"]],       on="YearMonth", how="left")
+    .merge(t10yie[["YearMonth", "T10YIE_diff"]], on="YearMonth", how="left")
+    .merge(m1m2[["YearMonth", "M1M2_diff"]],     on="YearMonth", how="left")
+    .merge(vix[["YearMonth", "VIX"]],            on="YearMonth", how="left")
+    .dropna()
+    .sort_values("YearMonth")
+    .reset_index(drop=True)
+)
+
+print(f"Muestra final: {len(macro)} observaciones")
+print(macro.head())
 
 
+# ============================================================
+# PASO 4: Regresión FM — ecuación (7) de Zhang-Olmo
+# Δλ_t = α + ρ·Δλ_{t-1} + Σ β_m·X_{m,t-1} + ε_t
+# ============================================================
 
+def fm_macro_regression(df, dep_var, macro_vars, nw_lags=4):
+    
+    df = df.copy().dropna()
+    
+    df["dep"]     = df[dep_var].diff(1)   # Δλ_t
+    df["dep_lag"] = df["dep"].shift(1)    # Δλ_{t-1}
+    
+    for var in macro_vars:
+        df[f"{var}_lag"] = df[var].shift(1)
+    
+    df = df.dropna()
+    
+    X_cols = ["dep_lag"] + [f"{v}_lag" for v in macro_vars]
+    X = add_constant(df[X_cols])
+    y = df["dep"]
+    
+    model  = OLS(y, X).fit()
+    cov_nw = cov_hac(model, nlags=nw_lags)
+    se_nw  = np.sqrt(np.diag(cov_nw))
+    t_nw   = model.params / se_nw
+    
+    results = pd.DataFrame({
+        "Variable": X.columns,
+        "Coef":     model.params.values,
+        "SE (NW)":  se_nw,
+        "t-stat":   t_nw,
+        "Sig":      ["***" if abs(t) > 2.576 else
+                     "**"  if abs(t) > 1.960 else
+                     "*"   if abs(t) > 1.645 else ""
+                     for t in t_nw]
+    })
+    
+    return results, model.rsquared
 
+# ============================================================
+# PASO 5: Ejecución para Delta1_net y Gamma1_net
+# ============================================================
 
+# ============================================================
+# PASO 5: Ejecución para Delta1_net, Gamma1_net y VIX
+# ============================================================
 
+macro_vars = ["CFNAI", "CPI_diff", "T10YIE_diff", "M1M2_diff"]
+# VIX ya no es variable independiente, es dependiente
 
+# Añadimos VIX al dataframe de dependientes
+macro["VIX_diff"] = macro["VIX"].diff(1)  # Δ(VIX) como dependiente
 
+dep_vars = {
+    "Delta1_net": "Δ Delta Net Exposure (Call - Put)",
+    "Gamma1_net": "Γ Gamma Net Exposure (Call - Put)",
+    "VIX":        "VIX (validación)"
+}
 
+resultados = {}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+for dep, label in dep_vars.items():
+    results, r2 = fm_macro_regression(macro, dep, macro_vars, nw_lags=4)
+    resultados[dep] = (results, r2)
+    print(f"\n{'='*60}")
+    print(f"Variable dependiente: Δ{dep} — {label}")
+    print(f"R² = {r2:.4f}")
+    print(f"{'='*60}")
+    print(tabulate(results, headers="keys", tablefmt="rounded_outline",
+                   floatfmt=".4f", showindex=False))
 
 
 
 # %%
 
+
+import pandas as pd
+import numpy as np
+from statsmodels.regression.linear_model import OLS
+from statsmodels.tools import add_constant
+from statsmodels.stats.sandwich_covariance import cov_hac
+from tabulate import tabulate
+
+# ============================================================
+# PREPARACIÓN: variables en diferencias
+# ============================================================
+
+macro_vars = ["CFNAI", "CPI_diff", "T10YIE_diff", "M1M2_diff"]
+dep_vars   = ["Delta1_net", "Gamma1_net", "VIX"]
+
+df = macro.copy().sort_values("YearMonth").reset_index(drop=True)
+
+# Diferencias de las dependientes
+for dep in dep_vars:
+    df[f"d_{dep}"] = df[dep].diff(1)
+
+# Lags de las macro (X_{m,t-1} como en Zhang-Olmo)
+for var in macro_vars:
+    df[f"{var}_lag"] = df[var].shift(1)
+
+df = df.dropna().reset_index(drop=True)
+
+dep_diff_vars  = [f"d_{dep}" for dep in dep_vars]
+macro_lag_vars = [f"{var}_lag" for var in macro_vars]
+
+# ============================================================
+# REGRESIONES INDIVIDUALES — Muestra completa + Rolling 60m
+# ============================================================
+
+WINDOW  = 24
+nw_lags = 4
+
+# ============================================================
+# PARTE 1: Muestra completa
+# ============================================================
+
+print("=" * 70)
+print("REGRESIONES INDIVIDUALES — MUESTRA COMPLETA")
+print("=" * 70)
+
+full_sample_results = {}
+
+for dep_diff in dep_diff_vars:
+    X    = add_constant(df[macro_lag_vars])
+    y    = df[dep_diff]
+    model = OLS(y, X).fit()
+    cov_nw = cov_hac(model, nlags=nw_lags)
+    se_nw  = np.sqrt(np.diag(cov_nw))
+    t_nw   = model.params / se_nw
+
+    results = pd.DataFrame({
+        "Variable": X.columns,
+        "Coef":     model.params.values,
+        "SE (NW)":  se_nw,
+        "t-stat":   t_nw,
+        "Sig":      ["***" if abs(t) > 2.576 else
+                     "**"  if abs(t) > 1.960 else
+                     "*"   if abs(t) > 1.645 else ""
+                     for t in t_nw]
+    })
+
+    full_sample_results[dep_diff] = {
+        "results": results,
+        "r2":      model.rsquared
+    }
+
+    print(f"\n--- Variable dependiente: {dep_diff} | R² = {model.rsquared:.4f} ---")
+    print(tabulate(results, headers="keys", tablefmt="rounded_outline",
+                   floatfmt=".4f", showindex=False))
+
+# ============================================================
+# PARTE 2: Rolling window de 60 meses
+# ============================================================
+
+rolling_results = {dep: [] for dep in dep_diff_vars}
+
+for t in range(WINDOW, len(df)):
+    df_window = df.iloc[t - WINDOW:t].copy()
+    ym        = df.iloc[t]["YearMonth"]
+
+    for dep_diff in dep_diff_vars:
+        X_ts  = add_constant(df_window[macro_lag_vars])
+        y_ts  = df_window[dep_diff]
+        model = OLS(y_ts, X_ts).fit()
+        cov_nw = cov_hac(model, nlags=nw_lags)
+        se_nw  = np.sqrt(np.diag(cov_nw))
+        t_nw   = model.params / se_nw
+
+        row = {"YearMonth": ym, "r2": model.rsquared}
+        for var, coef, se, t_stat in zip(
+            model.params.index, model.params.values, se_nw, t_nw
+        ):
+            row[f"coef_{var}"]  = coef
+            row[f"se_{var}"]    = se
+            row[f"tstat_{var}"] = t_stat
+
+        rolling_results[dep_diff].append(row)
+
+rolling_dfs = {
+    dep: pd.DataFrame(res).set_index("YearMonth")
+    for dep, res in rolling_results.items()
+}
+
+# ============================================================
+# PARTE 3: Gráficos — distribución de betas rolling
+# ============================================================
+
+vars_to_plot = ["const"] + macro_lag_vars
+n_vars       = len(vars_to_plot)
+n_deps       = len(dep_diff_vars)
+
+# --- 3a: Serie temporal de betas rolling ---
+for dep_diff in dep_diff_vars:
+    rdf = rolling_dfs[dep_diff]
+    fig, axes = plt.subplots(n_vars, 1, figsize=(14, 3 * n_vars), sharex=True)
+
+    for ax, var in zip(axes, vars_to_plot):
+        coef_col  = f"coef_{var}"
+        se_col    = f"se_{var}"
+        dates = pd.to_datetime(rdf.index.astype(str))
+        coefs     = rdf[coef_col]
+        se        = rdf[se_col]
+
+        ax.plot(dates, coefs, color="steelblue", linewidth=0.9, label="β")
+        ax.fill_between(dates,
+                        coefs - 1.645 * se,
+                        coefs + 1.645 * se,
+                        alpha=0.2, color="steelblue", label="±1.645 SE")
+        ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+        ax.set_title(f"{dep_diff} — β({var.replace('_lag','')})")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(f"Betas rolling (60m) — {dep_diff}", fontsize=13)
+    plt.tight_layout()
+    plt.show()
+
+# --- 3b: Distribución (histograma) de betas rolling ---
+for dep_diff in dep_diff_vars:
+    rdf  = rolling_dfs[dep_diff]
+    fig, axes = plt.subplots(1, n_vars, figsize=(4 * n_vars, 4))
+
+    for ax, var in zip(axes, vars_to_plot):
+        coef_col = f"coef_{var}"
+        coefs    = rdf[coef_col].dropna()
+        # Muestra completa como línea vertical
+        coef_full = full_sample_results[dep_diff]["results"].set_index(
+            "Variable").loc[var, "Coef"]
+
+        ax.hist(coefs, bins=30, color="steelblue", alpha=0.7, edgecolor="white")
+        ax.axvline(0,          color="black",   linewidth=1.0, linestyle="--", label="0")
+        ax.axvline(coef_full,  color="firebrick", linewidth=1.5, linestyle="-",
+                   label=f"Full sample: {coef_full:.3f}")
+        ax.axvline(coefs.mean(), color="darkorange", linewidth=1.5, linestyle=":",
+                   label=f"Media rolling: {coefs.mean():.3f}")
+        ax.set_title(f"β({var.replace('_lag','')})")
+        ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(f"Distribución de betas rolling (60m) — {dep_diff}", fontsize=13)
+    plt.tight_layout()
+    plt.show()
+
+# --- 3c: % de meses con significatividad por variable ---
+print("\n=== Significatividad rolling (% meses con |t| > 1.645) ===")
+
+for dep_diff in dep_diff_vars:
+    rdf = rolling_dfs[dep_diff]
+    sig_rows = []
+    for var in vars_to_plot:
+        t_col  = f"tstat_{var}"
+        t_vals = rdf[t_col].dropna()
+        sig_rows.append({
+            "Factor":       var.replace("_lag", ""),
+            "% |t|>1.645":  (t_vals.abs() > 1.645).mean() * 100,
+            "% |t|>1.960":  (t_vals.abs() > 1.960).mean() * 100,
+            "% |t|>2.576":  (t_vals.abs() > 2.576).mean() * 100,
+        })
+
+    print(f"\n--- {dep_diff} ---")
+    print(tabulate(pd.DataFrame(sig_rows), headers="keys",
+                   tablefmt="rounded_outline", floatfmt=".1f", showindex=False))
+
+# --- 3d: R² rolling ---
+fig, axes = plt.subplots(1, n_deps, figsize=(6 * n_deps, 4), sharey=False)
+
+for ax, dep_diff in zip(axes, dep_diff_vars):
+    rdf   = rolling_dfs[dep_diff]
+    dates = pd.to_datetime(rdf.index.astype(str))
+    ax.plot(dates, rdf["r2"], color="steelblue", linewidth=0.9)
+    ax.axhline(full_sample_results[dep_diff]["r2"], color="firebrick",
+               linewidth=1.2, linestyle="--",
+               label=f"Full sample R²={full_sample_results[dep_diff]['r2']:.3f}")
+    ax.set_title(f"R² rolling (60m) — {dep_diff}")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.xaxis.set(major_locator=mdates.YearLocator(2),
+                 major_formatter=mdates.DateFormatter("%Y"))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+
+plt.tight_layout()
+plt.show()
+
+
+# %%
 #####################################################################################
 # Análisis 5: Descomposición vanna/charm — brecha entre gamma realizada y BS
 #####################################################################################
