@@ -19,8 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 if os.name == 'nt':
     PATH_DATA_OPT = r"Y:\OUTPUTS\opt_df_empirical_greeks.parquet"
 else:
-    PATH_DATA_OPT = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_empirical_greeks.parquet"
-
+    PATH_DATA_OPT = r"/Volumes/data/OUTPUTS/opt_df_empirical_greeks.parquet"
 print("Cargando datos...")
 opt_df_greek = pd.read_parquet(PATH_DATA_OPT)
 
@@ -28,7 +27,7 @@ print(opt_df_greek.info())
 print(opt_df_greek.describe())
 print(opt_df_greek.isnull().sum())
 
-
+# %%
 #Nos quedamos con los datos del bucket de vencimiento 15-45 días y delta no NaN:
 
 opt_df_greek_filt = opt_df_greek[(opt_df_greek["maturity_bucket"] == '(15.0, 45.0]') & (opt_df_greek["delta_emp"].notna()) & (opt_df_greek["gamma_emp"].notna())]
