@@ -1,52 +1,95 @@
-# In[]
+# In[]: "Importamos los datos"
 import pandas as pd
 import numpy as np
 import sys
 from tabulate import tabulate
 import matplotlib.pyplot as plt
 import os
+import matplotlib.dates as mdates
+import re
 
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-
-
 if os.name == 'nt':
+    PATH_DATA = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
     PATH_DATA = r"Y:\OUTPUTS\opt_df_prueba.parquet"
-    PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks.parquet"
 else:
-    PATH_DATA = r"Volumes/data/OptionMetrics/OUTPUTS/opt_df_prueba.parquet"
-    PATH_OUTPUT = r"Volumes/data/OptionMetrics/OUTPUTS/opt_df_empirical_greeks.parquet"
+    PATH_DATA = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_empirical_greeks.parquet"
 
 print("Cargando datos...")
 opt_df = pd.read_parquet(PATH_DATA)
-
-# In[]
 
 #Añadimos algunas variables de interés:
 opt_df["Dummy_Bid"] = opt_df["Bid"] > 0
 opt_df["DolarVolume"] = opt_df["Volume"] *opt_df["MidPrice"]
 
 
-# In[]
 
-# Asignamos buckets de vencimientos:
+# Asignamos buckets de vencimientos:¡
 v_grid = [0, 15, 45, 105, 183, 365, np.inf]
 v_edges = pd.IntervalIndex.from_breaks(v_grid, closed="right")
-opt_df["maturity_bucket"] = pd.cut(opt_df["Days"], bins=v_edges, labels=False, include_lowest=True)
+opt_df["maturity_bucket"] = pd.cut(opt_df["Days"], 
+    bins=v_edges, 
+    labels=False, 
+    include_lowest=True)
 
-# Asignamos buckets de moneyness (de momento en relación al spot):
 
-m_grid = np.round(np.linspace(0.1,2,int(2/0.1)),2)
+m_grid = np.round(  np.linspace(0.1,2,int(2/0.1)),2)
+m_grid = np.concatenate(([0],m_grid, [np.inf]))
 m_edges = pd.IntervalIndex.from_breaks(m_grid, closed="right")
 opt_df["moneyness_bucket"] = pd.cut(opt_df["Moneyness"], bins=m_edges, labels=False, include_lowest=True)
-print(opt_df[["Days", "maturity_bucket", "Moneyness", "moneyness_bucket"]].head(10))
-print("Datos cargados y buckets asignados.")
 
 
+# In[]: "Recuperamos el formato de intervalos:"
 
-# In[]:
+ 
+def parse_bound(x):
+    x = x.strip().lower()
+
+    if x in ["inf", "+inf", "infinity", "+infinity", "np.inf"]:
+        return np.inf
+    elif x in ["-inf", "-infinity", "-np.inf"]:
+        return -np.inf
+    else:
+        return float(x)
+
+def parse_interval(s):
+    if pd.isna(s):
+        return pd.NA
+
+    if isinstance(s, pd.Interval):
+        return s
+
+    s = str(s).strip()
+
+    pattern = r"^(\(|\[)\s*([^,]+)\s*,\s*([^\]\)]+)\s*(\)|\])$"
+    match = re.match(pattern, s)
+
+    if not match:
+        raise ValueError(f"Formato de intervalo no reconocido: {s}")
+
+    left_bracket, left, right, right_bracket = match.groups()
+
+    left = parse_bound(left)
+    right = parse_bound(right)
+
+    if left_bracket == "[" and right_bracket == "]":
+        closed = "both"
+    elif left_bracket == "[" and right_bracket == ")":
+        closed = "left"
+    elif left_bracket == "(" and right_bracket == "]":
+        closed = "right"
+    else:
+        closed = "neither"
+
+    return pd.Interval(left, right, closed=closed)
+
+opt_df["maturity_bucket"] = opt_df["maturity_bucket"].apply(parse_interval)
+opt_df["moneyness_bucket"] = opt_df["moneyness_bucket"].apply(parse_interval)
+
+# In[]: "Análisis de vencimientos y continuidad 1"
 
 def analisis_vencimiento(opt_df, v_min, v_max):
     
@@ -78,16 +121,18 @@ def analisis_vencimiento(opt_df, v_min, v_max):
     )
 
     tabla = grouped.groupby("moneyness_bucket").agg(
-        max_n_contracts = ("n_contracts",  "max"),
-        min_n_contracts = ("n_contracts",  "min"),
-        max_oi_dsum     = ("oi_dsum",      "max"),
-        min_oi_dsum     = ("oi_dsum",      "min"),
-        max_dolvol_dsum = ("dolvol_dsum",  "max"),
-        min_dolvol_dsum = ("dolvol_dsum",  "min"),
-        max_dbid_dmean  = ("dbid_dmean",   "max"),
-        min_dbid_dmean  = ("dbid_dmean",   "min")
+        max_n_contracts  = ("n_contracts",  "max"),
+        min_n_contracts  = ("n_contracts",  "min"),
+        max_oi_dsum      = ("oi_dsum",      "max"),
+        min_oi_dsum      = ("oi_dsum",      "min"),
+        max_dolvol_dsum  = ("dolvol_dsum",  "max"),
+        min_dolvol_dsum  = ("dolvol_dsum",  "min"),
+        # max_dbid_dmean   = ("dbid_dmean",   "max"),
+        min_dbid_dmean   = ("dbid_dmean",   "min"),
+        n_contracts_dsum = ("n_contracts",  "sum")
     ).reset_index()
-    tabla[["max_dbid_dmean", "min_dbid_dmean"]] *= 100
+    tabla["min_dbid_dmean"] *= 100
+
 
     # --- % de días con cobertura por bucket ---
     total_dias = len(todos_dias)
@@ -98,7 +143,7 @@ def analisis_vencimiento(opt_df, v_min, v_max):
         .rename(columns={"Date": "dias_con_datos"})
     )
     cobertura["pct_cobertura"] = cobertura["dias_con_datos"] / total_dias * 100
-    tabla = tabla.merge(cobertura, on="moneyness_bucket", how="left").fillna(0)
+    # tabla = tabla.merge(tabla, on="moneyness_bucket", how="left").fillna(0)
 
     print(f"\n=== Vencimiento ({v_min}, {v_max}] días ===")
     print(tabulate(tabla, headers="keys", tablefmt="rounded_outline", floatfmt=".3f", showindex=False))
@@ -125,9 +170,11 @@ def analisis_vencimiento(opt_df, v_min, v_max):
             "racha_max":        max(rachas) if rachas else 0,
             "racha_min":        min(rachas) if rachas else 0,
             "racha_media":      np.mean(rachas) if rachas else 0.0,
-            "n_rachas":         len(rachas)
+
         })
     continuidad = pd.DataFrame(resultados_cont)
+    continuidad = continuidad.merge(cobertura, on="moneyness_bucket", how="left").fillna(0)
+
     print(f"\n=== Continuidad por bucket — ({v_min}, {v_max}] días ===")
     print(tabulate(continuidad, headers="keys", tablefmt="rounded_outline", floatfmt=".1f", showindex=False))
 
@@ -153,11 +200,19 @@ def analisis_vencimiento(opt_df, v_min, v_max):
     fig.tight_layout()
     plt.show()
 
+    data_bid = data[data["Bid"] >= 0]
+    total_dias = data_bid["Date"].nunique()
+    dias_en_rango = rango["Date"].nunique()
+    print(total_dias, dias_en_rango, total_dias - dias_en_rango)
+
+
+
     return tabla, rango, cobertura, continuidad
 
 
 # --- Ejecución ---
 tramos = [(0, 15), (15, 45), (45, 105), (105, 183), (183, 365)]
+tramos = [(15, 45)]
 
 resultados = {}
 for v_min, v_max in tramos:
@@ -167,7 +222,8 @@ for v_min, v_max in tramos:
         "cobertura": cobertura, "continuidad": continuidad
     }
 
-# In[]:
+# In[]: "Análisis de vencimientos y continuidad 1: con filtro de BID >0"
+
 print("\n\n=== Resumen de resultados por tramo de vencimiento con filtro BID>0 ===")
 # --- Ejecución ---
 
@@ -182,13 +238,418 @@ for v_min, v_max in tramos:
 
 
 
+# In[]: Análisis de venvimientos y continuidad 2: detallado
+
+def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
+    """
+    Análisis detallado para un tramo de vencimiento dado.
+    
+    Parámetros:
+    -----------
+    opt_df : DataFrame con los datos de opciones
+    v_min, v_max : límites del tramo de vencimiento
+    subperiodos : dict opcional {"nombre": (fecha_ini, fecha_fin)}
+                  Si None, usa la muestra completa
+    """
+    
+    
+    nombre = f"{v_min}_{v_max}"
+    # Cambio: filtrar por Days en lugar de por maturity_bucket
+    data = opt_df[(opt_df["Days"] > v_min) & (opt_df["Days"] <= v_max)].copy()
+    
+    if data.empty:
+        print(f"[{nombre}] Sin datos.")
+        return None
+
+    if subperiodos is None:
+        subperiodos = {"Muestra completa": (data["Date"].min(), data["Date"].max())}
+
+    # ============================================================
+    # MÉTRICA 2: Dummy coexistencia Bid=0 Y Bid>0 en mismo día/bucket
+    # ============================================================
+    
+    def calcular_metrica2(df):
+        def coexiste(group):
+            tiene_bid0   = (group["Bid"] == 0).any()
+            tiene_bidpos = (group["Bid"] > 0).any()
+            return int(tiene_bid0 and tiene_bidpos)
+
+        coex = (df.groupby(["Date", "moneyness_bucket"])
+                .apply(coexiste)
+                .reset_index()
+                .rename(columns={0: "coexistencia"}))
+        
+        resumen = (coex.groupby("moneyness_bucket")
+                   .agg(dias_coexistencia = ("coexistencia", "sum"),
+                        total_dias        = ("coexistencia", "count"))
+                   .reset_index())
+        resumen["pct_coexistencia"] = resumen["dias_coexistencia"] / resumen["total_dias"] * 100
+        return resumen
+
+    # ============================================================
+    # TABLA RESUMEN POR PERIODO
+    # ============================================================
+
+    def tabla_resumen_periodo(df, label):
+
+        todos_dias    = df["Date"].unique()
+        todos_buckets = df["moneyness_bucket"].unique()
+        idx_completo  = pd.MultiIndex.from_product(
+            [todos_buckets, todos_dias],
+            names=["moneyness_bucket", "Date"]
+        )
+
+        # Sin filtro
+        grouped_all = (df
+        .groupby(["moneyness_bucket", "Date"]).agg(
+        n_contracts  = ("OptionID",      "count"),
+        oi_dsum      = ("OpenInterest",  "sum"),
+        dolvol_dsum  = ("DolarVolume",   "sum"),
+        dbid_dmean   = ("Dummy_Bid",     "mean")
+    )
+    .reset_index()  
+    .set_index(["moneyness_bucket", "Date"])
+    .reindex(idx_completo)
+    .fillna({"n_contracts": 0, "oi_dsum": 0,
+             "dolvol_dsum": 0, "dbid_dmean": 0})
+    .reset_index()
+)
+
+        # Con filtro Bid>0
+        df_bid = df[df["Bid"] > 0]
+        if not df_bid.empty:
+            grouped_bid = (df_bid
+    .groupby(["moneyness_bucket", "Date"]).agg(
+        n_contracts_bid = ("OptionID", "count"),
+    )
+    .reset_index()  # <- añadir esto
+    .set_index(["moneyness_bucket", "Date"])
+    .reindex(idx_completo)
+    .fillna({"n_contracts_bid": 0})
+    .reset_index()
+)
+        else:
+            grouped_bid = None
+
+        tabla_all = grouped_all.groupby("moneyness_bucket").agg(
+            max_n_contracts = ("n_contracts",  "max"),
+            min_n_contracts = ("n_contracts",  "min"),
+            sum_n_contracts = ("n_contracts",  "sum"),
+            max_oi_dsum     = ("oi_dsum",      "max"),
+            min_oi_dsum     = ("oi_dsum",      "min"),
+            max_dolvol_dsum = ("dolvol_dsum",  "max"),
+            min_dolvol_dsum = ("dolvol_dsum",  "min"),
+            min_dbid_dmean  = ("dbid_dmean",   "min"),
+        ).reset_index()
+        tabla_all["min_dbid_dmean"] *= 100
+
+        if grouped_bid is not None:
+            tabla_bid = grouped_bid.groupby("moneyness_bucket").agg(
+                max_n_bid = ("n_contracts_bid", "max"),
+                min_n_bid = ("n_contracts_bid", "min"),
+            ).reset_index()
+            tabla_all = tabla_all.merge(tabla_bid, on="moneyness_bucket", how="left")
+
+        # Métrica 2
+        m2 = calcular_metrica2(df)
+        tabla_all = tabla_all.merge(
+            m2[["moneyness_bucket", "dias_coexistencia", "pct_coexistencia"]],
+            on="moneyness_bucket", how="left"
+        )
+
+        print(f"\n=== {label} — Vencimiento ({v_min}, {v_max}] ===")
+        print(tabulate(tabla_all, headers="keys", tablefmt="rounded_outline",
+                       floatfmt=".2f", showindex=False))
+        
+        # --- % de días con cobertura por bucket ---
+        total_dias = len(todos_dias)
+        cobertura = (grouped_all[grouped_all["n_contracts"] > 0]
+            .groupby("moneyness_bucket")["Date"]
+            .nunique()
+            .reset_index()
+            .rename(columns={"Date": "dias_con_datos"})
+        )
+        cobertura["pct_cobertura"] = cobertura["dias_con_datos"] / total_dias * 100
+        
+        # --- Continuidad por bucket ---
+        fechas_ordenadas = pd.Series(sorted(todos_dias))
+        resultados_cont = []
+        for bucket, grupo in grouped_all.groupby("moneyness_bucket"):
+            fechas_con_datos = set(grupo[grupo["n_contracts"] > 0]["Date"])
+            serie = fechas_ordenadas.isin(fechas_con_datos).astype(int).values
+            rachas = []
+            racha_actual = 0
+            for v in serie:
+                if v == 1:
+                    racha_actual += 1
+                else:
+                    if racha_actual > 0:
+                        rachas.append(racha_actual)
+                    racha_actual = 0
+            if racha_actual > 0:
+                rachas.append(racha_actual)
+            resultados_cont.append({
+                "moneyness_bucket": bucket,
+                "racha_max":        max(rachas) if rachas else 0,
+                "racha_min":        min(rachas) if rachas else 0,
+                "racha_media":      np.mean(rachas) if rachas else 0.0,
+
+            })
+        continuidad = pd.DataFrame(resultados_cont)
+        continuidad = continuidad.merge(cobertura, on="moneyness_bucket", how="left").fillna(0)
+
+        print(f"\n=== Continuidad por bucket — ({v_min}, {v_max}] días ===")
+        print(tabulate(continuidad, headers="keys", tablefmt="rounded_outline", floatfmt=".1f", showindex=False))
+
+
+
+
+        return tabla_all, cobertura, continuidad
+
+    # ============================================================
+    # GRÁFICO 1: Spread m_min / m_max unificado por periodo
+    # ============================================================
+
+    def grafico_spread_cobertura():
+        fig, ax = plt.subplots(figsize=(14, 5))
+        colors = ["steelblue", "darkorange", "green", "firebrick"]
+
+        for (label, (f_ini, f_fin)), color in zip(subperiodos.items(), colors):
+            df_p     = data[(data["Date"] >= f_ini) & (data["Date"] <= f_fin)]
+            df_bid_p = df_p[df_p["Bid"] >= 0]
+            if df_bid_p.empty:
+                continue
+
+            rango = (df_bid_p
+                .groupby(["moneyness_bucket", "Date"]).size()
+                .reset_index(name="n")
+                .groupby("Date")["moneyness_bucket"]
+                .agg(m_min="min", m_max="max")
+                .reset_index()
+            )
+            rango["m_min"] = rango["m_min"].apply(lambda x: x.right)
+            rango["m_max"] = rango["m_max"].apply(lambda x: x.right)
+
+            ax.fill_between(rango["Date"], rango["m_min"], rango["m_max"],
+                            alpha=0.25, color=color, label=label)
+            ax.plot(rango["Date"], rango["m_min"], color=color, linewidth=0.6)
+            ax.plot(rango["Date"], rango["m_max"], color=color, linewidth=0.6)
+
+        ax.set_title(f"Spread cobertura moneyness — [{v_min},{v_max}] días")
+        ax.set_ylabel("Moneyness (extremo derecho bucket)")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
+    # ============================================================
+    # GRÁFICO 2: Estadísticos serie temporal por bucket
+    # ============================================================
+
+    # def grafico_series_bucket(df_p, label):
+    #     serie_bucket = (df_p
+    #         .groupby(["Date", "moneyness_bucket"]).agg(
+    #             n_total = ("OptionID",  "count"),
+    #             n_bid   = ("Dummy_Bid", "sum")
+    #         )
+    #         .reset_index()
+    #     )
+
+    #     buckets = sorted(serie_bucket["moneyness_bucket"].unique(),
+    #                      key=lambda x: x.right)
+
+    #     print(f"\n=== Estadísticos serie temporal por bucket — {label} ===")
+    #     stats_rows = []
+    #     for b in buckets:
+    #         sub = serie_bucket[serie_bucket["moneyness_bucket"] == b]
+    #         stats_rows.append({
+    #             "bucket":        str(b),
+    #             "n_total_media": sub["n_total"].mean(),
+    #             "n_total_min":   sub["n_total"].min(),
+    #             "n_total_max":   sub["n_total"].max(),
+    #             "n_bid_media":   sub["n_bid"].mean(),
+    #             "n_bid_min":     sub["n_bid"].min(),
+    #             "n_bid_max":     sub["n_bid"].max(),
+    #         })
+    #     print(tabulate(pd.DataFrame(stats_rows), headers="keys",
+    #                    tablefmt="rounded_outline", floatfmt=".1f", showindex=False))
+
+    #     return serie_bucket, buckets
+
+    # ============================================================
+    # GRÁFICO 3: Ridgeline — n_contratos por bucket (rotado)
+    # ============================================================
+
+    def grafico_ridgeline(df_p, label, escala=0.35):
+        serie_bucket = (df_p
+            .groupby(["Date", "moneyness_bucket"])["OptionID"]
+            .count()
+            .reset_index()
+            .rename(columns={"OptionID": "n_total"})
+        )
+
+        buckets = sorted(serie_bucket["moneyness_bucket"].unique(),
+                        key=lambda x: x.right)
+        fechas  = sorted(df_p["Date"].unique())
+
+        fig, ax = plt.subplots(figsize=(16, 10))
+        y_positions = {b: i for i, b in enumerate(buckets)}
+        cmap = plt.cm.get_cmap("tab20", len(buckets))
+
+        for idx_b, b in enumerate(buckets):
+            sub = (serie_bucket[serie_bucket["moneyness_bucket"] == b]
+                .set_index("Date")[["n_total"]]
+                .reindex(fechas)
+                .fillna(0))
+
+            max_val = sub["n_total"].max()
+            if max_val > 0:
+                sub["n_norm"] = sub["n_total"] / max_val * escala
+            else:
+                sub["n_norm"] = 0
+
+            y_base = y_positions[b]
+            x_vals = np.arange(len(fechas))  # tiempo en eje X
+            color  = cmap(idx_b)
+
+            ax.fill_between(x_vals, y_base, y_base + sub["n_norm"].values,
+                            alpha=0.4, color=color)
+            ax.plot(x_vals, y_base + sub["n_norm"].values,
+                    color=color, linewidth=0.8)
+            ax.axhline(y_base, color="gray", linewidth=0.4, linestyle="--")
+
+        # Eje Y — etiquetas de buckets
+        ax.set_yticks(list(y_positions.values()))
+        ax.set_yticklabels([f"{b.right:.1f}" for b in buckets], fontsize=8)
+
+        # Eje X — una etiqueta por año
+        fechas_dt = pd.to_datetime(fechas)
+        años = fechas_dt.year.unique()
+
+        tick_positions = []
+        tick_labels    = []
+
+        for año in sorted(años):
+            # Índice del primer día de cada año
+            idx = np.where(fechas_dt.year == año)[0]
+            if len(idx) > 0:
+                tick_positions.append(idx[0])
+                tick_labels.append(str(año))
+
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=9)
+
+        ax.set_ylabel("Bucket de moneyness")
+        ax.set_xlabel("Tiempo")
+        ax.set_title(f"Nº contratos por bucket (ridgeline) — {label} [{v_min},{v_max}] días")
+        ax.grid(True, alpha=0.2)
+        plt.tight_layout()
+        plt.show()    
+    def grafico_contratos_por_bucket(df_p, label, v_min, v_max):
+        """
+        Serie temporal diaria de n_contratos por bucket de moneyness.
+        Separado en dos paneles: buckets <= 1.0 y buckets > 1.0
+        """
+        serie_bucket = (df_p
+            .groupby(["Date", "moneyness_bucket"])["OptionID"]
+            .count()
+            .reset_index()
+            .rename(columns={"OptionID": "n_total"})
+        )
+
+        buckets = sorted(serie_bucket["moneyness_bucket"].unique(),
+                        key=lambda x: x.right)
+
+        buckets_bajo = [b for b in buckets if b.right <= 1.0]
+        buckets_alto = [b for b in buckets if b.right > 1.0]
+
+        cmap_bajo = plt.cm.get_cmap("Blues",  len(buckets_bajo) + 2)
+        cmap_alto = plt.cm.get_cmap("Reds",   len(buckets_alto) + 2)
+
+        fig, axes = plt.subplots(2, 1, figsize=(16, 10), sharex=True)
+
+        # Panel inferior — buckets <= 1.0
+        for i, b in enumerate(buckets_bajo):
+            sub = serie_bucket[serie_bucket["moneyness_bucket"] == b]
+            axes[0].plot(sub["Date"], sub["n_total"],
+                        linewidth=0.7, color=cmap_bajo(i + 2),
+                        label=f"{b.right:.1f}")
+        axes[0].set_title(f"Nº contratos — buckets ≤ 1.0 | {label} [{v_min},{v_max}] días")
+        axes[0].set_ylabel("Nº contratos")
+        axes[0].legend(fontsize=7, ncol=5, loc="upper left")
+        axes[0].grid(True, alpha=0.3)
+
+        # Panel superior — buckets > 1.0
+        for i, b in enumerate(buckets_alto):
+            sub = serie_bucket[serie_bucket["moneyness_bucket"] == b]
+            axes[1].plot(sub["Date"], sub["n_total"],
+                        linewidth=0.7, color=cmap_alto(i + 2),
+                        label=f"{b.right:.1f}")
+        axes[1].set_title(f"Nº contratos — buckets > 1.0 | {label} [{v_min},{v_max}] días")
+        axes[1].set_ylabel("Nº contratos")
+        axes[1].legend(fontsize=7, ncol=5, loc="upper left")
+        axes[1].grid(True, alpha=0.3)
+
+        axes[1].xaxis.set(major_locator=mdates.YearLocator(2),
+                        major_formatter=mdates.DateFormatter("%Y"))
+        plt.setp(axes[1].xaxis.get_majorticklabels(), rotation=45, ha="right")
+
+        fig.suptitle(f"Series temporales de contratos por bucket — {label}", fontsize=13)
+        plt.tight_layout()
+        plt.show()
+        # ============================================================
+        # EJECUCIÓN COMPLETA
+        # ============================================================
+
+    tablas_periodo = {}
+
+    for label, (f_ini, f_fin) in subperiodos.items():
+        df_p = data[(data["Date"] >= f_ini) & (data["Date"] <= f_fin)].copy()
+        if df_p.empty:
+            print(f"[{label}] Sin datos.")
+            continue
+        t, g, h = tabla_resumen_periodo(df_p, label)
+        tablas_periodo[label] = t
+
+    grafico_spread_cobertura()
+
+    for label, (f_ini, f_fin) in subperiodos.items():
+        df_p = data[(data["Date"] >= f_ini) & (data["Date"] <= f_fin)].copy()
+        if df_p.empty:
+            continue
+        # grafico_series_bucket(df_p, label)
+        grafico_ridgeline(df_p, label)
+        # grafico_contratos_por_bucket(df_p, label, v_min, v_max)
+
+    return tablas_periodo
+
+
+# ============================================================
+# EJECUCIÓN
+# ============================================================
+
+subperiodos = {
+    "2003-2008": (pd.Timestamp("2003-01-01"), pd.Timestamp("2008-12-31")),
+    "2008-2015": (pd.Timestamp("2008-01-01"), pd.Timestamp("2015-12-31")),
+    "2016-2024": (pd.Timestamp("2016-01-01"), pd.Timestamp("2024-12-31")),
+    "Completo":  (pd.Timestamp("2003-01-01"), pd.Timestamp("2024-12-31")),
+}
+
+# Tramo completo 15-45
+resultados_detallado = analisis_detallado(opt_df, 15, 45, subperiodos=subperiodos)
+
+# # Subtramos de días
+resultados_15_29 = analisis_detallado(opt_df, 15, 29, subperiodos=subperiodos)
+resultados_30_45 = analisis_detallado(opt_df, 30, 45, subperiodos=subperiodos)
+
+
 # In[]:
 
-# Para los datos filtrados con el Bid>0, y tramo 15-45 días.
-
-data_15_45 = opt_df[(opt_df["maturity_bucket"] == pd.Interval(15, 45, closed="right")) & (opt_df["Bid"] > 0)]
 
 
+# In[]:     
+
+"""
 # ============================================================
 # OPCIÓN 1: Delta empírica a nivel contrato individual
 # ============================================================
@@ -576,4 +1037,5 @@ for col, flag in [
 diagnostico_greek(df_diag_gamma, "gamma_emp",     "wrong_sign_gop1", "outlier_gop1", "Gamma Opción 1 — contrato individual")
 diagnostico_greek(df_diag_gamma, "gamma_emp_op2", "wrong_sign_gop2", "outlier_gop2", "Gamma Opción 2 — agregada por bucket")
 diagnostico_greek(df_diag_gamma, "gamma_emp_op3", "wrong_sign_gop3", "outlier_gop3", "Gamma Opción 3 — delta agregada")
-# %%
+"""
+

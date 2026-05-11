@@ -58,6 +58,65 @@ Se examina la cobertura temporal de cada bucket respondiendo a:
 
 En cada bucket, obtengo para cada día el número días seguidos tenemos hasta la siguiente rotura, lo que he llamado rachas. Adicionalmente muestro en número minimo y macximo de rachas y el número de rachas, cortes que se realizan, cuanto menos cortes más continuidad.
 
+
+
+
+
+
+---
+
+## 5. Ampliación: Retoques de outputs.
+
+A las tablas de los apartados 3 y 4 añado el número de contratos que hay en este bucket de moneyness.
+
+Puedo ver también: 
+- 1: Para cada día y bucket, cuántos contratos tengo que tienen Bid > 0 y cuantos Bid = 0.
+    - **Métrica 1**: Ver la diferencia (en el latex mostrar):
+        
+        Lo puedo ver repitiendo el análisis pero filtrando por Bid>0 y comparando los números de contratos max y min que quedarían, así como el número de contratos en general. Ya que la variable de días sin filtrar es básicamente una *Unión*
+
+    - **Métrica 2**: Simulateindad en Bid = 0 y Bid > 0:
+
+        Saco una dummy que me devuelve 1 si para ese día hay almenos un contrato con Bid = 0 *Y* Bid > 0.
+        De manera que en la tabla reporte, sacaré el recuento completo para ese bucket. 
+
+- 2: Repito el análisis para el bucket de vencimiento de 15 a 45 días pero para distintos tramos: de 15 a 29 y de 30 a 45
+
+- 3: Repito el análisis separando por el periodo 2003-2008, 2008-2015, 2016-2024
+
+- 4: *Gráficos*: Dividiendo por subperiodos y en completo.
+    - Unifico los dos primeros para visualiza mejor el spread de cobterura entre el minimo y maximo bucket del día.
+    - Para cada bucket de moneyness, ver el número de contratos. Creo dos ejes donde los valores verticales se resetean por bucket, mostrando el número de contratos de cada bucket. (VER COMO VISUALIZAR MEJOR EL Nº)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ---
 
 ## 5. Robustez: moneyness sobre forward

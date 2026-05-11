@@ -8,16 +8,11 @@ import duckdb
 
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-"""
-QUITAR: ARRIBA
-"""
 
 
 if os.name == 'nt':
     PATH_DATA = r"Y:\OUTPUTS\opt_df_prueba.parquet"
-    PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks.parquet"
+    PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
 else:
     PATH_DATA = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_prueba.parquet"
     PATH_OUTPUT = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_empirical_greeks.parquet"
@@ -296,7 +291,7 @@ resultados_por_bucket = []
 for bucket in maturity_buckets[0:]:
     print(f"Calculando greeks empíricas para bucket de vencimiento: {bucket}:")
     
-    data_bucket = opt_df[(opt_df["maturity_bucket"] == bucket) & (opt_df["Bid"] > 0)]
+    data_bucket = opt_df[(opt_df["maturity_bucket"] == bucket) ] # & (opt_df["Bid"] > 0)
     opt_df_con_greeks, resultados_greeks = calcular_greeks_empiricas(data_bucket)
     resultados_por_bucket.append(opt_df_con_greeks)
 
