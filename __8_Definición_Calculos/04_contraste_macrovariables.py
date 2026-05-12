@@ -56,9 +56,9 @@ opt_df_greek_filt_95 = opt_df_greek_filt[
     (opt_df_greek_filt["gamma_emp"] <= opt_df_greek_filt["gamma_emp"].quantile(0.95)) &
     (opt_df_greek_filt["gamma_emp"] >= opt_df_greek_filt["gamma_emp"].quantile(0.05))
 ]
+ 
 
 
-opt_df_greek_filt_95
 # %% 
 ##################################################################################### 
 # Análisis 1 Parte 2: Descriptivos con dataframe filtrado al percentil 95% y 5%

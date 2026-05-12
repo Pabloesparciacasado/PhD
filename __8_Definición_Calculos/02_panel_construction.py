@@ -12,12 +12,14 @@ from pathlib import Path
 
 if os.name == 'nt':
     PATH_DATA = r"Y:\OUTPUTS\opt_df_prueba.parquet"
-    PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
+    PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks.parquet"
+
+    # PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
 else:
     PATH_DATA = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_prueba.parquet"
     PATH_OUTPUT = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_empirical_greeks.parquet"
 
-PATH_DATA   = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\preliminares\opt_df_prueba.parquet"
+# PATH_DATA   = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\preliminares\opt_df_prueba.parquet"
 
 print("Cargando datos...")
 opt_df = pd.read_parquet(PATH_DATA)
@@ -83,7 +85,7 @@ def delta_empirica_op1(data):
     df["delta_emp"] = dC / dS
 
     # Mantenemos SpotPrice para gamma
-    return df[["Date", "OptionID", "CallPut", "moneyness_bucket", "OpenInterest", "SpotPrice", "delta_emp"]]
+    return df[["Date", "OptionID", "CallPut", "moneyness_bucket", "OpenInterest", "SpotPrice", "SpotPrice_lag", "delta_emp"]]
 
 
 # ============================================================
@@ -151,18 +153,18 @@ def gamma_empirica_op1(delta_op1):
     df = delta_op1.sort_values(["OptionID", "Date"]).copy()
 
     df["delta_emp_lag"] = df.groupby("OptionID")["delta_emp"].shift(1)
-    df["SpotPrice_lag"] = df.groupby("OptionID")["SpotPrice"].shift(1)
+    df["SpotPrice_lag2"] = df.groupby("OptionID")["SpotPrice_lag"].shift(1)
 
-    df = df.dropna(subset=["delta_emp_lag", "SpotPrice_lag"])
+    df = df.dropna(subset=["delta_emp_lag", "SpotPrice_lag2"])
 
-    dS     = df["SpotPrice"] - df["SpotPrice_lag"]
+    dS     = df["SpotPrice"] - df["SpotPrice_lag2"]
     ddelta = df["delta_emp"] - df["delta_emp_lag"]
 
     df = df[dS.abs() > 0].copy()
-    dS     = df["SpotPrice"] - df["SpotPrice_lag"]
+    dS     = df["SpotPrice"] - df["SpotPrice_lag2"]
     ddelta = df["delta_emp"] - df["delta_emp_lag"]
 
-    df["gamma_emp"] = ddelta / dS
+    df["gamma_emp"] = 2*(ddelta / dS)
 
     return df[["Date", "OptionID", "CallPut", "moneyness_bucket", "OpenInterest", "gamma_emp"]]
 
@@ -291,7 +293,7 @@ resultados_por_bucket = []
 for bucket in maturity_buckets[0:]:
     print(f"Calculando greeks empíricas para bucket de vencimiento: {bucket}:")
     
-    data_bucket = opt_df[(opt_df["maturity_bucket"] == bucket) ] # & (opt_df["Bid"] > 0)
+    data_bucket = opt_df[(opt_df["maturity_bucket"] == bucket) & (opt_df["Bid"] > 0) ] # & (opt_df["Bid"] > 0)
     opt_df_con_greeks, resultados_greeks = calcular_greeks_empiricas(data_bucket)
     resultados_por_bucket.append(opt_df_con_greeks)
 

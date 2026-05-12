@@ -494,7 +494,8 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
 
         fig, ax = plt.subplots(figsize=(16, 10))
         y_positions = {b: i for i, b in enumerate(buckets)}
-        cmap = plt.cm.get_cmap("tab20", len(buckets))
+        # cmap = plt.cm.get_cmap("tab20", len(buckets))
+        cmap = plt.colormaps.get_cmap("tab20").resampled(len(buckets))
 
         for idx_b, b in enumerate(buckets):
             sub = (serie_bucket[serie_bucket["moneyness_bucket"] == b]
@@ -628,6 +629,7 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
 # EJECUCIÓN
 # ============================================================
 
+"""
 subperiodos = {
     "2003-2008": (pd.Timestamp("2003-01-01"), pd.Timestamp("2008-12-31")),
     "2008-2015": (pd.Timestamp("2008-01-01"), pd.Timestamp("2015-12-31")),
@@ -641,11 +643,29 @@ resultados_detallado = analisis_detallado(opt_df, 15, 45, subperiodos=subperiodo
 # # Subtramos de días
 resultados_15_29 = analisis_detallado(opt_df, 15, 29, subperiodos=subperiodos)
 resultados_30_45 = analisis_detallado(opt_df, 30, 45, subperiodos=subperiodos)
+"""
+
+subperiodos = {
+    "Completo":  (pd.Timestamp("2003-01-01"), pd.Timestamp("2024-12-31"))
+    }
+
+
+print("========================= Resultados para CALLS =========================")
+
+opt_df_C = opt_df[opt_df["CallPut"] == "C"]
+resultados_15_45_C = analisis_detallado(opt_df_C, 15, 45, subperiodos=subperiodos)
+
+print("========================= Resultados para PUTS =========================")
+
+opt_df_P = opt_df[opt_df["CallPut"] == "P"]
+resultados_15_45_P = analisis_detallado(opt_df_P, 15, 45, subperiodos=subperiodos)
+
+
 
 
 # In[]:
 
-
+print(opt_df["Date"].unique())
 
 # In[]:     
 
