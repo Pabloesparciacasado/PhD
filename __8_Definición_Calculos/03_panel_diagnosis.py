@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 import sys
-from tabulate import tabulate
+from   tabulate import tabulate
 import matplotlib.pyplot as plt
 import os
 import matplotlib.dates as mdates
@@ -16,16 +16,16 @@ if os.name == 'nt':
     PATH_DATA = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
     PATH_DATA = r"Y:\OUTPUTS\opt_df_prueba.parquet"
 else:
-    PATH_DATA = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_empirical_greeks.parquet"
+    PATH_DATA = r"/Volumes/data/OUTPUTS/opt_df_empirical_greeks.parquet"
 
 print("Cargando datos...")
 opt_df = pd.read_parquet(PATH_DATA)
 
 #Añadimos algunas variables de interés:
 opt_df["Dummy_Bid"] = opt_df["Bid"] > 0
-opt_df["DolarVolume"] = opt_df["Volume"] *opt_df["MidPrice"]
+opt_df["DolarVolume"] = opt_df["Volume"] * opt_df["MidPrice"]
 
-
+opt_df = opt_df[opt_df["Bid"]>0]
 
 # Asignamos buckets de vencimientos:¡
 v_grid = [0, 15, 45, 105, 183, 365, np.inf]
@@ -412,6 +412,7 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
 
     def grafico_spread_cobertura():
         fig, ax = plt.subplots(figsize=(14, 5))
+        # ax2 = ax.twinx()
         colors = ["steelblue", "darkorange", "green", "firebrick"]
 
         for (label, (f_ini, f_fin)), color in zip(subperiodos.items(), colors):
@@ -427,20 +428,54 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
                 .agg(m_min="min", m_max="max")
                 .reset_index()
             )
-            rango["m_min"] = rango["m_min"].apply(lambda x: x.right)
-            rango["m_max"] = rango["m_max"].apply(lambda x: x.right)
+            rango["m_min"] = rango["m_min"].apply(lambda x: x.right).astype(float)
+            rango["m_max"] = rango["m_max"].apply(lambda x: x.right).astype(float)
 
             ax.fill_between(rango["Date"], rango["m_min"], rango["m_max"],
                             alpha=0.25, color=color, label=label)
             ax.plot(rango["Date"], rango["m_min"], color=color, linewidth=0.6)
             ax.plot(rango["Date"], rango["m_max"], color=color, linewidth=0.6)
 
-        ax.set_title(f"Spread cobertura moneyness — [{v_min},{v_max}] días")
-        ax.set_ylabel("Moneyness (extremo derecho bucket)")
-        ax.legend()
+
+
+        # ax.set_title(f"Spread cobertura moneyness — [{v_min},{v_max}] días")
+        ax.set_ylabel("Moneyness (right side of the interval)")
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
+
+    def grafico_spread():
+        fig, ax = plt.subplots(figsize=(14, 5))
+        colors = ["steelblue", "darkorange", "green", "firebrick"]
+
+        for (label, (f_ini, f_fin)), color in zip(subperiodos.items(), colors):
+            df_p     = data[(data["Date"] >= f_ini) & (data["Date"] <= f_fin)]
+            df_bid_p = df_p[df_p["Bid"] >= 0]
+            if df_bid_p.empty:
+                continue
+
+            rango = (df_bid_p
+                .groupby(["moneyness_bucket", "Date"]).size()
+                .reset_index(name="n")
+                .groupby("Date")["moneyness_bucket"]
+                .agg(m_min="min", m_max="max")
+                .reset_index()
+            )
+            rango["m_min"] = rango["m_min"].apply(lambda x: x.right).astype(float)
+            rango["m_max"] = rango["m_max"].apply(lambda x: x.right).astype(float)
+            rango["amplitud"] = rango["m_max"] - rango["m_min"]
+
+
+            ax.plot(rango["Date"], rango["amplitud"], color=color,
+                     linewidth=1.2, linestyle="--", alpha=0.7)
+
+        # ax.set_title(f"Spread cobertura moneyness — [{v_min},{v_max}] días")
+        ax.set_ylabel("Spread (max − min moneyness)")
+        #ax.tick_params(axis="y", labelcolor="dimgray")
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
 
     # ============================================================
     # GRÁFICO 2: Estadísticos serie temporal por bucket
@@ -480,7 +515,7 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
     # GRÁFICO 3: Ridgeline — n_contratos por bucket (rotado)
     # ============================================================
 
-    def grafico_ridgeline(df_p, label, escala=0.35):
+    def grafico_ridgeline(df_p, label, fill=0.88):
         serie_bucket = (df_p
             .groupby(["Date", "moneyness_bucket"])["OptionID"]
             .count()
@@ -490,62 +525,90 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
 
         buckets = sorted(serie_bucket["moneyness_bucket"].unique(),
                         key=lambda x: x.right)
-        fechas  = sorted(df_p["Date"].unique())
+        fechas    = sorted(df_p["Date"].unique())
+        fechas_dt = pd.to_datetime(fechas)
+        x_vals    = np.arange(len(fechas))
 
-        fig, ax = plt.subplots(figsize=(16, 10))
-        y_positions = {b: i for i, b in enumerate(buckets)}
-        # cmap = plt.cm.get_cmap("tab20", len(buckets))
+        # Tres paneles según rango de moneyness (de mayor a menor)
+        grupos  = [
+            [b for b in buckets if b.right > 1.45], 
+            [b for b in buckets if 0.75 < b.right <= 1.45],
+            [b for b in buckets if b.right <= 0.75],
+        ]
+        titulos = ["Moneyness 1.5+", "Moneyness 0.8 – 1.4", "Moneyness 0.1 – 0.7"]
+
+        # Índice global de color para mantener colores consistentes
+        bucket_idx = {b: i for i, b in enumerate(buckets)}
         cmap = plt.colormaps.get_cmap("tab20").resampled(len(buckets))
 
-        for idx_b, b in enumerate(buckets):
-            sub = (serie_bucket[serie_bucket["moneyness_bucket"] == b]
-                .set_index("Date")[["n_total"]]
-                .reindex(fechas)
-                .fillna(0))
-
-            max_val = sub["n_total"].max()
-            if max_val > 0:
-                sub["n_norm"] = sub["n_total"] / max_val * escala
-            else:
-                sub["n_norm"] = 0
-
-            y_base = y_positions[b]
-            x_vals = np.arange(len(fechas))  # tiempo en eje X
-            color  = cmap(idx_b)
-
-            ax.fill_between(x_vals, y_base, y_base + sub["n_norm"].values,
-                            alpha=0.4, color=color)
-            ax.plot(x_vals, y_base + sub["n_norm"].values,
-                    color=color, linewidth=0.8)
-            ax.axhline(y_base, color="gray", linewidth=0.4, linestyle="--")
-
-        # Eje Y — etiquetas de buckets
-        ax.set_yticks(list(y_positions.values()))
-        ax.set_yticklabels([f"{b.right:.1f}" for b in buckets], fontsize=8)
-
-        # Eje X — una etiqueta por año
-        fechas_dt = pd.to_datetime(fechas)
-        años = fechas_dt.year.unique()
-
-        tick_positions = []
-        tick_labels    = []
-
-        for año in sorted(años):
-            # Índice del primer día de cada año
+        # Posiciones X con etiqueta anual
+        tick_positions, tick_labels = [], []
+        for año in sorted(fechas_dt.year.unique()):
             idx = np.where(fechas_dt.year == año)[0]
             if len(idx) > 0:
                 tick_positions.append(idx[0])
                 tick_labels.append(str(año))
 
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=9)
+        fig, axes = plt.subplots(3, 1, figsize=(16, 18), sharex=True)
 
-        ax.set_ylabel("Bucket de moneyness")
-        ax.set_xlabel("Tiempo")
-        ax.set_title(f"Nº contratos por bucket (ridgeline) — {label} [{v_min},{v_max}] días")
-        ax.grid(True, alpha=0.2)
+        for ax, grupo_buckets, titulo in zip(axes, grupos, titulos):
+            if not grupo_buckets:
+                ax.set_visible(False)
+                continue
+
+            y_pos    = {b: i for i, b in enumerate(grupo_buckets)}
+            max_vals = {}
+
+            for b in grupo_buckets:
+                sub = (serie_bucket[serie_bucket["moneyness_bucket"] == b]
+                    .set_index("Date")[["n_total"]]
+                    .reindex(fechas)
+                    .fillna(0))
+
+                max_val = sub["n_total"].max()
+                max_vals[b] = int(max_val)
+                n_norm = sub["n_total"] / max_val * fill if max_val > 0 else sub["n_total"] * 0
+
+                y_base = y_pos[b]
+                color  = cmap(bucket_idx[b])
+
+                ax.fill_between(x_vals, y_base, y_base + n_norm.values,
+                                alpha=0.4, color=color)
+                ax.plot(x_vals, y_base + n_norm.values, color=color, linewidth=0.8)
+                ax.axhline(y_base, color="gray", linewidth=0.4, linestyle="--")
+
+            y_lim = (-0.3, len(grupo_buckets) - 1 + fill + 0.2)
+            ax.set_ylim(y_lim)
+
+            # Eje Y izquierdo — etiqueta de moneyness
+            ax.set_yticks(list(y_pos.values()))
+            ax.set_yticklabels([f"{b.right:.1f}" for b in grupo_buckets], fontsize=8)
+            ax.set_ylabel("Moneyness", fontsize=9)
+
+            # Eje Y derecho — 3 ticks por bucket: 0, 50%, máx
+            ax2 = ax.twinx()
+            ax2.set_ylim(y_lim)
+            right_ticks, right_labels = [], []
+            for b in grupo_buckets:
+                m = max_vals[b]
+                for frac in [0.0, 0.5, 1.0]:
+                    right_ticks.append(y_pos[b] + frac * fill)
+                    right_labels.append(f"{int(m * frac):,}" if frac > 0 else "0")
+            ax2.set_yticks(right_ticks)
+            ax2.set_yticklabels(right_labels, fontsize=6)
+            ax2.set_ylabel("Nº Contracts", fontsize=9)
+
+            ax.set_title(titulo, fontsize=9, loc="left", pad=3)
+            ax.grid(True, alpha=0.2)
+
+        axes[-1].set_xticks(tick_positions)
+        axes[-1].set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=9)
+        axes[-1].set_xlabel("Time")
+
+        # fig.suptitle(f"Nº contratos por bucket (ridgeline) — {label}", fontsize=11, y=1.01)
         plt.tight_layout()
-        plt.show()    
+        plt.show()
+
     def grafico_contratos_por_bucket(df_p, label, v_min, v_max):
         """
         Serie temporal diaria de n_contratos por bucket de moneyness.
@@ -613,15 +676,16 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
         tablas_periodo[label] = t
 
     grafico_spread_cobertura()
+    grafico_spread()
 
     for label, (f_ini, f_fin) in subperiodos.items():
         df_p = data[(data["Date"] >= f_ini) & (data["Date"] <= f_fin)].copy()
         if df_p.empty:
             continue
-        # grafico_series_bucket(df_p, label)
-        grafico_ridgeline(df_p, label)
-        # grafico_contratos_por_bucket(df_p, label, v_min, v_max)
-
+             # grafico_series_bucket(df_p, label)
+        # grafico_ridgeline(df_p, label)
+               # grafico_contratos_por_bucket(df_p, label, v_min, v_max)
+ 
     return tablas_periodo
 
 
@@ -645,27 +709,26 @@ resultados_15_29 = analisis_detallado(opt_df, 15, 29, subperiodos=subperiodos)
 resultados_30_45 = analisis_detallado(opt_df, 30, 45, subperiodos=subperiodos)
 """
 
+print("========================= Resultados para CALLS =========================")
+
+# opt_df_C = opt_df[opt_df["CallPut"] == "C"]
+# resultados_15_45_C = analisis_detallado(opt_df_C, 15, 45, subperiodos=subperiodos)
+
+print("========================= Resultados para PUTS =========================")
+# %%
+
+
 subperiodos = {
     "Completo":  (pd.Timestamp("2003-01-01"), pd.Timestamp("2024-12-31"))
     }
 
+opt_df_filter = opt_df[opt_df["OpenInterest"] > 0]
 
-print("========================= Resultados para CALLS =========================")
-
-opt_df_C = opt_df[opt_df["CallPut"] == "C"]
-resultados_15_45_C = analisis_detallado(opt_df_C, 15, 45, subperiodos=subperiodos)
-
-print("========================= Resultados para PUTS =========================")
-
-opt_df_P = opt_df[opt_df["CallPut"] == "P"]
-resultados_15_45_P = analisis_detallado(opt_df_P, 15, 45, subperiodos=subperiodos)
+# opt_df_P = opt_df[opt_df["CallPut"] == "P"]
+resultados_15_45_P = analisis_detallado(opt_df_filter, 15, 45, subperiodos=subperiodos)
 
 
 
-
-# In[]:
-
-print(opt_df["Date"].unique())
 
 # In[]:     
 
