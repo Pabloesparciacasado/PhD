@@ -452,7 +452,7 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
             df_p     = data[(data["Date"] >= f_ini) & (data["Date"] <= f_fin)]
             df_bid_p = df_p[df_p["Bid"] >= 0]
             if df_bid_p.empty:
-                continue
+                continue    
 
             rango = (df_bid_p
                 .groupby(["moneyness_bucket", "Date"]).size()
@@ -683,7 +683,7 @@ def analisis_detallado(opt_df, v_min, v_max, subperiodos=None):
         if df_p.empty:
             continue
              # grafico_series_bucket(df_p, label)
-        # grafico_ridgeline(df_p, label)
+        grafico_ridgeline(df_p, label)
                # grafico_contratos_por_bucket(df_p, label, v_min, v_max)
  
     return tablas_periodo
