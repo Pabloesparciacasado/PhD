@@ -68,29 +68,30 @@ opt_df["horquilla"] = (opt_df["Ask"] - opt_df["Bid"])/ opt_df["MidPrice"]
 opt_df = opt_df[(opt_df["Bid"]>=0) & (opt_df["Ask"] > opt_df["Bid"])]
 
 # In[]:
+# Opción 1: Calculamos moneyness forward
 
-opt_bloque = []
+# opt_bloque = []
 
-for fecha, opt_fecha in opt_df.groupby("Date"):
+# for fecha, opt_fecha in opt_df.groupby("Date"):
    
-    fp_fecha = fp_df[fp_df["Date"] == fecha]
-    fp_fecha = fp_fecha.sort_values("Days")  
-    if fp_fecha.empty:
+#     fp_fecha = fp_df[fp_df["Date"] == fecha]
+#     fp_fecha = fp_fecha.sort_values("Days")  
+#     if fp_fecha.empty:
         
-        continue
-    curva_fecha = zc_df[(zc_df["Date"] == fecha) & (zc_df["Currency"] == 333)]
-    if curva_fecha.empty:
+#         continue
+#     curva_fecha = zc_df[(zc_df["Date"] == fecha) & (zc_df["Currency"] == 333)]
+#     if curva_fecha.empty:
        
-        continue
-    opt_fecha["forward_index"] = np.interp(opt_fecha["Days"], fp_fecha["Days"], fp_fecha["ForwardPrice"])
-    opt_fecha["Rate"] = interpolate_rates_surface(zc_df, opt_fecha, fecha, 333, 365)
+#         continue
+#     opt_fecha["forward_index"] = np.interp(opt_fecha["Days"], fp_fecha["Days"], fp_fecha["ForwardPrice"])
+#     opt_fecha["Rate"] = interpolate_rates_surface(zc_df, opt_fecha, fecha, 333, 365)
 
-    opt_bloque.append(opt_fecha)
+#     opt_bloque.append(opt_fecha)
 
-opt_df = pd.concat(opt_bloque, ignore_index=True)
+# opt_df = pd.concat(opt_bloque, ignore_index=True)
 
-opt_df["Moneyness_Forward"] = opt_df["Strike"] / opt_df["forward_index"]
-opt_df["log_moneyness_Forward"] = np.log(opt_df["Moneyness_Forward"])
+# opt_df["Moneyness_Forward"] = opt_df["Strike"] / opt_df["forward_index"]
+# opt_df["log_moneyness_Forward"] = np.log(opt_df["Moneyness_Forward"])
 
 
 # %%
@@ -109,6 +110,7 @@ print(opt_df_prueba["_merge"].value_counts())
 
 opt_df_prueba.rename(columns={"ClosePrice": "SpotPrice"}, inplace=True)
 
+# Opción 2: Calculamos moneyness con Spot
 
 
 opt_df_prueba["Moneyness"] = opt_df_prueba["Strike"] / opt_df_prueba["SpotPrice"]
