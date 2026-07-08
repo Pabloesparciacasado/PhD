@@ -26,7 +26,7 @@ agg_df
 agg_df.columns
 rem_col = ["n_contratos_very_deep_dspread","n_contratos_deep_dspread","n_contratos_near_dspread","n_contratos_ATM_dspread",
            "n_contratos_delta_OI","n_contratos_delta_VD","n_contratos_gamma_VD","mean_DolarVolume_delta_VD" ]
-rename = [n_contratos_gamma_OI,mean_DolarVolume_gamma_VD]
+rename = ["n_contratos_gamma_OI","mean_DolarVolume_gamma_VD"]
 agg_df = agg_df.drop(columns =rem_col)
 # %%
 agg_df.columns
