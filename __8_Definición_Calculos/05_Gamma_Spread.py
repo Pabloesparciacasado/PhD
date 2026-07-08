@@ -1,12 +1,12 @@
-# In[]: "Importamos los datos"
+# In[]: Importamos los datos
 import pandas as pd
 import numpy as np
 import sys
-from   tabulate import tabulate
-import matplotlib.pyplot as plt
 import os
-import matplotlib.dates as mdates
+from functools import reduce
 import re
+import duckdb
+
 
 from pathlib import Path
 
@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 if os.name == 'nt':
     PATH_DATA = r"Y:\OUTPUTS\opt_df_empirical_greeks.parquet"
+    OUT_PATH =  r"Y:\OUTPUTS\Agg_Greeks.csv"
 else:
     PATH_DATA = r"/Volumes/data/OUTPUTS/opt_df_empirical_greeks.parquet"
 
@@ -41,7 +42,7 @@ m_edges = pd.IntervalIndex.from_breaks(m_grid, closed="right")
 opt_df["moneyness_bucket"] = pd.cut(opt_df["Moneyness"], bins=m_edges, labels=False, include_lowest=True)
 
 
-# In[]: "Recuperamos el formato de intervalos:"
+# Recuperamos el formato de intervalos
  
 def parse_bound(x):
     x = x.strip().lower()
@@ -87,9 +88,7 @@ def parse_interval(s):
 opt_df["maturity_bucket"] = opt_df["maturity_bucket"].apply(parse_interval)
 opt_df["moneyness_bucket"] = opt_df["moneyness_bucket"].apply(parse_interval)
 
-# In[]: 
-
-# Limpiamos datos. Hay bastantes puntos donde no se ha podido generar la sensibilidad.
+# In[]: Limpieza de datos
 
 opt_df = opt_df.drop(columns=["delta_emp_op2","delta_emp_op3","gamma_emp_op2", "gamma_emp_op3","Moneyness_Forward","log_moneyness_Forward"])
 
@@ -102,9 +101,7 @@ opt_df_filtrado.shape
 
 opt_df_filtrado = opt_df_filtrado.dropna()
 opt_df_filtrado.shape
-# %%
-
-# In[]: # 1) Agregación por media ponderada
+# In[]: Funciones:
 
 def WA_diaria(df,variable, greek_emp, greek_teo):
     resultados = []
@@ -124,29 +121,16 @@ def WA_diaria(df,variable, greek_emp, greek_teo):
         resultados.append({
             "Date":       dt,
             "CallPut":    cp,
-            greek_emp:    (oi * grupo_valid[greek_emp]).sum() / oi.sum(),
-            greek_teo:    (oi * grupo_valid[greek_teo]).sum() / oi.sum(),
-            variable:     oi.mean(),
+            f"w_{greek_emp}":    (oi * grupo_valid[greek_emp]).sum() / oi.sum(),
+            # greek_teo:    (oi * grupo_valid[greek_teo]).sum() / oi.sum(),
+            f"mean_{variable}":     oi.mean(),
             "n_contratos": len(grupo_valid)
         })
 
     df_out = pd.DataFrame(resultados)
     return df_out
 
-# Ejecutamos 
 
-opt_df_filtrado[opt_df_filtrado["OpenInterest"] > 0]
-
-serie_gamma_OI = WA_diaria(opt_df_filtrado,"OpenInterest", "gamma_emp", "Gamma")
-serie_gamma_VD = WA_diaria(opt_df_filtrado,"DolarVolume", "gamma_emp", "Gamma")
-
-serie_delta_OI = WA_diaria(opt_df_filtrado,"OpenInterest", "delta_emp", "Delta")
-serie_delta_VD = WA_diaria(opt_df_filtrado,"DolarVolume", "delta_emp", "Delta")
-
-# In[]: # 2) Gamma Spread
-
-
-# %%
 def gamma_spread_left(df, variable, greek_emp, bucket_col="Moneyness"):
     """
     Calculamos la diferencia diaria agrupando por tipo de opcion.
@@ -231,7 +215,78 @@ def gamma_spread_left(df, variable, greek_emp, bucket_col="Moneyness"):
 
 
 
-# %%
-prueba = gamma_spread_left(opt_df_filtrado, "OpenInterest","gamma_emp" )
-prueba
+# %% Ejecución:
+opt_df_filtrado[opt_df_filtrado["OpenInterest"] > 0]
+
+g_spread_left = gamma_spread_left(opt_df_filtrado, "OpenInterest","gamma_emp" )
+d_spread_left = gamma_spread_left(opt_df_filtrado, "OpenInterest","delta_emp" )
+
+serie_gamma_OI = WA_diaria(opt_df_filtrado,"OpenInterest", "gamma_emp", "Gamma")
+serie_gamma_VD = WA_diaria(opt_df_filtrado,"DolarVolume", "gamma_emp", "Gamma")
+
+serie_delta_OI = WA_diaria(opt_df_filtrado,"OpenInterest", "delta_emp", "Delta")
+serie_delta_VD = WA_diaria(opt_df_filtrado,"DolarVolume", "delta_emp", "Delta")
+
+# %% Guardamos resultados:
+
+keys = ["Date", "CallPut", "bucket"]
+
+dfs = [
+    g_spread_left.add_suffix("_gspread").rename(columns={
+        "Date_gspread": "Date",
+        "CallPut_gspread": "CallPut",
+        "bucket_gspread": "bucket"
+    }),
+
+    d_spread_left.add_suffix("_dspread").rename(columns={
+        "Date_dspread": "Date",
+        "CallPut_dspread": "CallPut",
+        "bucket_dspread": "bucket"
+
+    })
+]
+
+final_df = reduce(
+    lambda x, y: pd.merge(x, y, on=keys, how="outer"),
+    dfs
+)
+
+dfs = [
+    final_df,
+
+    serie_gamma_OI.add_suffix("_gamma_OI").rename(columns={
+        "Date_gamma_OI": "Date",
+        "CallPut_gamma_OI": "CallPut",
+    }),
+
+    serie_gamma_VD.add_suffix("_gamma_VD").rename(columns={
+        "Date_gamma_VD": "Date",
+        "CallPut_gamma_VD": "CallPut",
+    }),
+
+    serie_delta_OI.add_suffix("_delta_OI").rename(columns={
+        "Date_delta_OI": "Date",
+        "CallPut_delta_OI": "CallPut",
+    }),
+
+    serie_delta_VD.add_suffix("_delta_VD").rename(columns={
+        "Date_delta_VD": "Date",
+        "CallPut_delta_VD": "CallPut",
+    })
+]
+
+keys = ["Date", "CallPut"]
+
+final_df = reduce(
+    lambda x, y: pd.merge(x, y, on=keys, how="outer"),
+    dfs
+)
+
+duckdb.from_df(final_df).write_parquet(
+    str(OUT_PATH),
+    compression="snappy"
+)
+
+print(f"Fichero guardado correctamente en: {OUT_PATH}")
+
 # %%

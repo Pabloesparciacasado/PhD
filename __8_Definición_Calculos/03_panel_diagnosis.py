@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 if os.name == 'nt':
-    PATH_DATA = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
+    #PATH_DATA = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
     PATH_DATA = r"Y:\OUTPUTS\opt_df_prueba.parquet"
 else:
     PATH_DATA = r"/Volumes/data/OUTPUTS/opt_df_empirical_greeks.parquet"
