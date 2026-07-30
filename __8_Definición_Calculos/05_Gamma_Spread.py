@@ -103,6 +103,8 @@ opt_df_filtrado = opt_df_filtrado.dropna()
 opt_df_filtrado.shape
 # In[]: Funciones:
 
+# Dos posibilidades de cálculo:
+
 def WA_diaria(df,variable, greek_emp, greek_teo):
     resultados = []
 
@@ -213,7 +215,12 @@ def gamma_spread_left(df, variable, greek_emp, bucket_col="Moneyness"):
 
     return pd.DataFrame(resultados_spread)
 
+## DEJAMOS ABIERTO:
 
+# 1) PCA para obtener la pendiente
+# 2) LPKR o solo Kernel ponderando por OI.
+# 3) WLS 
+# redefinición de las categorías de moneyness. 
 
 # %% Ejecución:
 opt_df_filtrado[opt_df_filtrado["OpenInterest"] > 0]
