@@ -17,8 +17,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+empirical = False
+
 if os.name == 'nt':
-    PATH_DATA =  r"Y:\OUTPUTS\Agg_Greeks.csv"
+    if empirical:
+        PATH_DATA =  r"Y:\OUTPUTS\Agg_Greeks.csv"
+    else:
+        PATH_DATA =  r"Y:\OUTPUTS\Agg_Greeks_BS.csv"
+
     DIAG_PATH =  r"Y:\Financial_Data"
 else:
     PATH_DATA = r"/Volumes/data/OUTPUTS/opt_df_empirical_greeks.parquet"
@@ -36,6 +42,12 @@ ff_df = ff_df.rename(columns={ff_df.columns[0]: "Date"})
 ff_df = ff_df.iloc[0:1199,:]
 
 ff_df["periodo_mes"] = pd.to_datetime(ff_df["Date"].astype(str), format="%Y%m").dt.to_period("M")
+
+spx = pd.read_parquet(os.path.join(r"Y:\OptionMetrics\Acumulado", "security_price.parquet"))
+
+spx = spx[spx["SecurityID"] == 108105].reset_index()
+spx = spx[[ 'Date', 'Bid', 'Ask', 'OpenPrice',
+       'ClosePrice', 'TotalReturn', 'AdjustmentFactor','AdjustmentFactor2']]
 
 
 
@@ -143,7 +155,7 @@ def grafico_continuidad_spread(df, tipo="gspread", group_cols=("CallPut", "bucke
     plt.show()
 
 
-# --- Ejecución: continuidad del gamma spread y del delta spread ---
+# %%  --- Ejecución: continuidad del gamma spread y del delta spread ---
 continuidad_gspread = analisis_continuidad_spread(agg_df, tipo="gspread")
 continuidad_dspread = analisis_continuidad_spread(agg_df, tipo="dspread")
 
@@ -180,9 +192,71 @@ def serie_mensual(df, value_col, callput="P", out_name=None):
 
     return mensual
 
+def serie_mensual_general(df, value_col, out_name=None):
+    """
+    Construye una serie mensual para `value_col`, tomando para cada mes el
+    último dato no nulo disponible.
 
+    No filtra por CallPut, por lo que sirve para cualquier serie contenida
+    en un DataFrame con columnas `Date` y `value_col`.
+    """
+    out_name = out_name or value_col
+
+    sub = df.loc[
+        df[value_col].notna(),
+        ["Date", value_col]
+    ].copy()
+
+    sub["Date"] = pd.to_datetime(sub["Date"])
+    sub = sub.sort_values("Date")
+    sub["periodo_mes"] = sub["Date"].dt.to_period("M")
+
+    mensual = (
+        sub
+        .groupby("periodo_mes", as_index=False)
+        .tail(1)
+        [["periodo_mes", value_col]]
+        .rename(columns={value_col: out_name})
+        .reset_index(drop=True)
+    )
+
+    return mensual
+
+
+def retorno_mensual_compuesto(df, return_col, out_name=None):
+    """
+    Calcula el retorno mensual compuesto a partir de retornos diarios simples.
+
+    Para cada mes:
+        R_mensual = producto(1 + r_diario) - 1
+
+    Los valores ausentes se ignoran. Si un mes no contiene ningún retorno
+    válido, su resultado será NaN.
+    """
+    out_name = out_name or return_col
+
+    sub = df.loc[
+        df[return_col].notna(),
+        ["Date", return_col]
+    ].copy()
+
+    sub["Date"] = pd.to_datetime(sub["Date"])
+    sub["periodo_mes"] = sub["Date"].dt.to_period("M")
+
+    mensual = (
+        sub
+        .groupby("periodo_mes")[return_col]
+        .apply(lambda retornos: (1 + retornos).prod() - 1)
+        .rename(out_name)
+        .reset_index()
+    )
+
+    return mensual
+
+#%%
 # Nombre final -> columna real en agg_df
-variables_mensuales = {
+if empirical:
+    variables_mensuales = {
     # niveles ATM
     "ATM_Put_gamma":           "gamma_emp_ATM_gspread",
     "ATM_Put_delta":           "delta_emp_ATM_dspread",
@@ -200,7 +274,25 @@ variables_mensuales = {
     "w_delta_OI":              "w_delta_emp_delta_OI",
     "w_delta_VD":              "w_delta_emp_delta_VD",
 }
-
+else:
+    variables_mensuales = {
+    # niveles ATM
+    "ATM_Put_gamma":           "Gamma_ATM_gspread",
+    "ATM_Put_delta":           "Delta_ATM_dspread",
+    # spreads gamma (ATM - bucket)
+    "near_otm_Put_gamma":      "spread_ATM_minus_near_gspread",
+    "deep_otm_Put_gamma":      "spread_ATM_minus_deep_gspread",
+    "very_deep_otm_Put_gamma": "spread_ATM_minus_very_deep_gspread",
+    # spreads delta (ATM - bucket)
+    "near_otm_Put_delta":      "spread_ATM_minus_near_dspread",
+    "deep_otm_Put_delta":      "spread_ATM_minus_deep_dspread",
+    "very_deep_otm_Put_delta": "spread_ATM_minus_very_deep_dspread",
+    # medias ponderadas (nivel, no spread)
+    "w_gamma_OI":              "w_Gamma_gamma_OI",
+    "w_gamma_VD":              "w_Gamma_gamma_VD",
+    "w_delta_OI":              "w_Delta_delta_OI",
+    "w_delta_VD":              "w_Delta_delta_VD",
+}
 
 series_mensuales = [
     serie_mensual(agg_df, col, callput="P", out_name=nombre)
@@ -222,10 +314,26 @@ panel_mensual = (
     .reset_index(drop=True)
 )
 
+spx_m = retorno_mensual_compuesto(
+    spx,
+    return_col="TotalReturn",
+    out_name="R_SPX_m"
+)
+panel_mensual = (
+    panel_mensual
+    .merge(spx_m, on="periodo_mes", how="inner")
+    .sort_values("periodo_mes")
+    .reset_index(drop=True)
+)
+
+
 # Reordenamos: periodo_mes primero, luego el resto
 primero = ["periodo_mes"]
 panel_mensual = panel_mensual[primero + [c for c in panel_mensual.columns if c not in primero]]
+panel_mensual["Mkt-RF"]  = pd.to_numeric(panel_mensual["Mkt-RF"], errors="coerce")/100
+panel_mensual["RF"]  = pd.to_numeric(panel_mensual["RF"], errors="coerce")/100
 panel_mensual
+
 
 
 # In[]: Regresión predictiva IS — Mkt-RF_t = a + b * near_otm_Put_gamma_{t-1} + e_t
@@ -237,12 +345,16 @@ def regresion_predictiva(df, dep_var="Mkt-RF", pred_var="near_otm_Put_delta",
     df[dep_var]  = pd.to_numeric(df[dep_var], errors="coerce")
     df[pred_var] = pd.to_numeric(df[pred_var], errors="coerce")
 
-    # Retorno acumulado sobre los siguientes q=horizon meses.
-    # rolling(window=horizon).sum() suma los q meses previos.
-    # shift(-horizon) desplaza esa suma para que aparezca en la fecha t
-    # y represente la suma de r_{t+1}, ..., r_{t+horizon}.
+
     dep_col = f"{dep_var}_h{horizon}"
-    df[dep_col] = df[dep_var].shift(-1).rolling(window=horizon).sum().shift(-(horizon-1))
+    gross = (1 + df[dep_var])
+    # producto móvil de q factores brutos futuros, colocado en t
+    idx = pd.api.indexers.FixedForwardWindowIndexer(window_size=h)
+    df[dep_col] = (
+    gross.shift(-1)
+         .rolling(window=idx, min_periods=h)
+         .apply(np.prod, raw=True)
+            ) - 1 
     
     pred_lag_col = f"{pred_var}_lag{lag}"
     df[pred_lag_col] = df[pred_var].shift(lag)
@@ -280,15 +392,50 @@ def regresion_predictiva(df, dep_var="Mkt-RF", pred_var="near_otm_Put_delta",
 
 
 # %% Ejecutamos la regresión:
-variables= list(variables_mensuales.keys())
+
+# %%
 """ En primer lugar, queremos evaluar si la variable agregada en niveles (no en retornos ni diferencias), predice el mercado
-    # Evaluamos para distintos horizontes, empezamos con un mes vista y definciones del mercado; según CRSP y SP500.
+    # Evaluamos para distintos horizontes, empezamos con un mes vista y definciones del mercado; según CRSP.
     # Hacemos la evaluación IS con OLS:
+"""
+variables = list(variables_mensuales.keys())
+for n in variables:
+    for h in [ 1, 2, 3, 12, 24, 36, 48]:      # horizontes
+        for l in [0]:            # rezagos del predictor
+            print(f"horizon {h}")
+            resultados_is, modelo_is = regresion_predictiva(
+                panel_mensual, dep_var="Mkt-RF", pred_var=n,lag=l, horizon=h, nw_lags=h)
+
+
+# %% Con el SP500
+"""
+    Probemos ahora con el retorno del SP500 .
+    Como los retornos son en logaritmos, y como el SP500 no contiene splits ni dividendos, no es necesario ajustar el factor.
+    Tenemos frecuencia diaria así que obtener la mensual, seguimos el estandar de componer 
+
 """
 
 for n in variables:
-    for h in [1, 3, 12, 24, 36]:      # horizontes
+    for h in [ 1, 2, 3, 12, 24, 36]:      # horizontes
         for l in [0]:            # rezagos del predictor
+            print(f"horizon {h}")
             resultados_is, modelo_is = regresion_predictiva(
-                panel_mensual, dep_var="Mkt-RF", pred_var=n, 
-                lag=l, horizon=h, nw_lags=h)
+                panel_mensual, dep_var="R_SPX_m", pred_var=n,lag=l, horizon=h, nw_lags=h)
+
+
+# %%
+faltantes = {
+    nombre: col
+    for nombre, col in variables_mensuales.items()
+    if col not in agg_df.columns
+}
+
+print(faltantes)
+# %%
+print(panel_mensual.columns.tolist())
+
+# %%
+
+print(agg_df.columns.tolist())
+
+# %%
