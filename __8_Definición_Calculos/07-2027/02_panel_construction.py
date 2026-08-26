@@ -11,15 +11,15 @@ from pathlib import Path
 
 
 if os.name == 'nt':
-
     PATH_DATA = r"Y:\OUTPUTS\opt_df_prueba.parquet"
     PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks.parquet"
 
     # PATH_OUTPUT = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
 else:
-    PATH_DATA = r"/Volumes/data/OUTPUTS/opt_df_prueba.parquet"
-    PATH_OUTPUT = r"/Volumes/data/OUTPUTS/opt_df_empirical_greeks.parquet"
+    PATH_DATA = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_prueba.parquet"
+    PATH_OUTPUT = r"/Volumes/data/OptionMetrics/OUTPUTS/opt_df_empirical_greeks.parquet"
 
+# PATH_DATA   = r"C:\Users\pablo.esparcia\Documents\OptionMetrics\output\preliminares\opt_df_prueba.parquet"
 
 print("Cargando datos...")
 opt_df = pd.read_parquet(PATH_DATA)

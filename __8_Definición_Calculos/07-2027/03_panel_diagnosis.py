@@ -715,7 +715,7 @@ print("========================= Resultados para CALLS =========================
 # resultados_15_45_C = analisis_detallado(opt_df_C, 15, 45, subperiodos=subperiodos)
 
 print("========================= Resultados para PUTS =========================")
-# %% EJECUCIÓN
+# %%
 
 
 subperiodos = {
