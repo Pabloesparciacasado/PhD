@@ -37,7 +37,19 @@ else:
 
 
 print("Cargando datos...")
-opt_df = pd.read_parquet(PATH_DATA)
+
+con = duckdb.connect()
+
+# Si en este paso solo necesitas ciertas columnas, selecciónalas aquí
+opt_df = con.execute(f"""
+    SELECT *
+    FROM read_parquet('{PATH_DATA}')
+    -- WHERE lo que necesites filtrar, si aplica en este punto
+""").df()
+
+
+
+# opt_df = pd.read_parquet(PATH_DATA)
 
 opt_df
 # In[]: "Recuperamos el formato de intervalos:"
@@ -83,15 +95,27 @@ def parse_interval(s):
         closed = "neither"
 
     return pd.Interval(left, right, closed=closed)
-
+"""
 opt_df["maturity_bucket"] = opt_df["maturity_bucket"].apply(parse_interval)
 opt_df["moneyness_bucket"] = opt_df["moneyness_bucket"].apply(parse_interval)
+"""
 
+
+# Parseamos solo los valores únicos, una vez cada uno
+unique_vals = pd.concat([
+    opt_df["maturity_bucket"], 
+    opt_df["moneyness_bucket"]
+]).unique()
+
+bucket_map = {v: parse_interval(v) for v in unique_vals}
+
+opt_df["maturity_bucket"] = opt_df["maturity_bucket"].map(bucket_map)
+opt_df["moneyness_bucket"] = opt_df["moneyness_bucket"].map(bucket_map)
 # %% 
 
 
 
 
-#
+
 
 
