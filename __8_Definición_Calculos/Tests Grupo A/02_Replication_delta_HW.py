@@ -24,13 +24,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 if os.name == 'nt':
-    PATH_DATA = r"Y:\OUTPUTS\opt_df_prueba.parquet"
-    PATH_COEF_OUT = r"Y:\OUTPUTS\HW_coef.csv"
-    PATH_OOS_OUT = r"Y:\OUTPUTS\HW_oos.parquet"
+    PATH_DATA = r"Y:\OUTPUTS\REPLICA_HW\opt_df_prueba.parquet"
+    PATH_COEF_OUT = r"Y:\OUTPUTS\REPLICA_HW\HW_coef.csv"
+    PATH_OOS_OUT = r"Y:\OUTPUTS\REPLICA_HW\HW_oos.parquet"
 
 else:
     PATH_DATA = r"/Volumes/data/OUTPUTS/opt_df_prueba.parquet"
-
+# %% Carga de datos (DuckDB)
 
 print("Cargando datos...")
 
@@ -45,7 +45,7 @@ opt_df = con.execute(f"""
 
 opt_df
 
-# In[]:
+# In[]: Filtro de columnas y precios spot
 
 #filtro de columnas relevantes:
 
@@ -88,7 +88,7 @@ next_trading_dates = pd.Series(
 )
 
 
-#%%
+#%% Función: dataset_preparation
 """
 Los datos importados tan solo tiene el filtro de quela implied volatility,
     se ha puesto formato fecha a tau (Days) ,
@@ -320,7 +320,7 @@ coef.to_csv(PATH_COEF_OUT, index=False, encoding='utf-8')
 print(f"Resultado coef guardado correctamente en: {PATH_COEF_OUT}")
 
 
-# %%
+# %% Cargar resultados OOS
 
 OOS = pd.read_parquet(PATH_OOS_OUT)
 print("Resultados OOS cargados")
@@ -335,7 +335,7 @@ Eq. (3):
 # ============================================================
 # VALIDACIÓN HULL-WHITE: GAIN
 # ============================================================
-# %%
+# %% Gain global (Hull-White)
 
 def gain_hw(df):
     """
@@ -362,7 +362,7 @@ gain["Gain_pct"] = gain["Gain"] * 100
 
 print(gain.round(0))
 
-# %%
+# %% Gain por bucket (setup)
 """
 
 Comparación de métrica de Gains vs HW(2017) paper por buckets
@@ -371,7 +371,7 @@ Comparación de métrica de Gains vs HW(2017) paper por buckets
 
 oos = OOS.copy()
 
-# %%
+# %% Definir Delta_bucket
 
 oos["Delta_bucket"] = oos["Delta"].round(1)
 
@@ -386,7 +386,7 @@ oos.loc[oos["CallPut"] == "P","Delta_bucket"] = (
     oos.loc[oos["CallPut"]=="P", "Delta_bucket"]
     .clip(-0.1,-0.9)
 )
-# %%
+# %% Tabla de Gain por bucket
 gain_bucket = (
     oos.groupby(["CallPut", "Delta_bucket"])
     .apply(gain_hw)
@@ -409,25 +409,25 @@ gain_tab = (
 gain_tab = gain_tab.round(2)
 print(gain_tab)
 
-# %%
+# %% Cargar coeficientes HW
 
 COEF = pd.read_csv(PATH_COEF_OUT)
 print("Resultados COEF cargados")
 
-# %%
+
 coef = COEF.copy()
 
 coefc = coef[coef["cp_flag"] == "C"]
 coefp = coef[coef["cp_flag"] == "P"]
 
-# %%
+# %% Plot coeficientes - Calls y Puts
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 
-coefc["fecha"] = pd.to_datetime(coefc["train_start"])  # asegúrate de que sea datetime
-df = coefc.sort_values("train_start")
+coefc["fecha"] = pd.to_datetime(coefc["train_end"])  # asegúrate de que sea datetime
+df = coefc.sort_values("train_end")
 df["-b"] = -df["b"]
 
 columnas = ["a", "-b", "c"]  # columnas a plotear
@@ -435,42 +435,52 @@ columnas = ["a", "-b", "c"]  # columnas a plotear
 fig, ax = plt.subplots(figsize=(10, 5))
 
 for col in columnas:
-    ax.plot(df["train_start"], df[col], label=col, linewidth=1.5)
+    ax.plot(df["fecha"], df[col], label=col, linewidth=1.5)
 
 ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
 fig.autofmt_xdate()
 
 ax.set_xlabel("Fecha")
 ax.set_ylabel("Valor")
-ax.set_title("Graico para Calls")
+ax.set_title("Estimated Call parameters")
 ax.legend()
 ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
+
+plt.savefig(r"Y:\OUTPUTS\REPLICA_HW\HW_coef_call.svg")
+print("imagen guardada correctamente en formato svg")
+
 plt.show()
 
-# %%
-coefp["fecha"] = pd.to_datetime(coefc["train_start"])  # asegúrate de que sea datetime
-df = coefp.sort_values("train_start")
+
+coefp["fecha"] = pd.to_datetime(coefp["train_end"])  # asegúrate de que sea datetime
+df = coefp.sort_values("train_end")
 
 columnas = ["a", "b", "c"]  # columnas a plotear
 
 fig, ax = plt.subplots(figsize=(10, 5))
 
 for col in columnas:
-    ax.plot(df["train_start"], df[col], label=col, linewidth=1.5)
+    ax.plot(df["fecha"], df[col], label=col, linewidth=1.5)
 
 ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
 fig.autofmt_xdate()
 
 ax.set_xlabel("Fecha")
 ax.set_ylabel("Valor")
-ax.set_title("Graico para Calls")
+ax.set_title("Estimated Put parameters")
 ax.legend()
 ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
+
+plt.savefig(r"Y:\OUTPUTS\REPLICA_HW\HW_coef_put.svg")
+print("imagen guardada correctamente en formato svg")
+
 plt.show()
+
+
 # %%
