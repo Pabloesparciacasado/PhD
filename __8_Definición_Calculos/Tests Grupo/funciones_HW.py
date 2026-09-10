@@ -33,7 +33,7 @@ def dataset_preparation(df, next_trad_date):
     df["next_date"] = g["Date"].shift(-1)
 
     df["next_market_date"] = df["Date"].map(next_trad_date)
-#####-> poner el dropnan
+
     df = df[df["next_date"] == df["next_market_date"]].copy()
 
     df = df[df["Days"] >= 14].copy()
@@ -394,3 +394,25 @@ def gain_gamma(df):
 
 
     return gain_gamma1, gain_gamma2, gain_gamma3, gain_gamma4
+
+
+
+def sse_normalizado(df):
+    """
+    Hull & White (2017), Eq. (3):
+
+        Gain = 1 - SSE(eps_MV) / SSE(eps_BS)
+    """
+    sse_mv_emp = np.sum(df["eps_delta_mv_gamma_emp"] ** 2)
+    sse_bs_bs = np.sum(df["eps_delta_bs_gamma_bs"] ** 2)
+    sse_bs_emp = np.sum(df["eps_delta_bs_gamma_emp"] ** 2)
+    sse_mv_bs = np.sum(df["eps_delta_mv_gamma_bs"] ** 2)
+
+    SSE_bs_bs   = (1- sse_bs_bs / sse_bs_bs)*100
+    SSE_bs_emp   = (1- sse_bs_emp / sse_bs_bs)*100
+    SSE_mv_bs   = (1- sse_mv_bs / sse_bs_bs)*100
+    SSE_mv_emp   = (1- sse_mv_emp / sse_bs_bs)*100
+
+
+
+    return SSE_bs_bs, SSE_bs_emp, SSE_mv_bs, SSE_mv_emp
