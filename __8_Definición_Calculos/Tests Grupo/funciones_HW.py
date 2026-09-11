@@ -161,7 +161,8 @@ def apply_greeks(df_test, params, ej_gamma: bool=True):
 
         out["eps_delta_mv_gamma_bs"] = (out["df_option"] - out["delta_mv"] * out["ds"] - 0.5*(out["Gamma"] * out["SpotPrice"]* out["ds"]**2))
 
-
+    else:
+        return out
     return out
 
 
@@ -171,6 +172,7 @@ def apply_greeks(df_test, params, ej_gamma: bool=True):
 
 def rolling_window(
     pairs,
+    ej_gamma: bool = True,
     f1="2004-01-01",  # primera fecha de estimación, tras el tiempo de espera en la primera estimación-
     f2="2015-08-31",
     window_months_est=36,
@@ -228,7 +230,7 @@ def rolling_window(
                 "train_end": train_end,
                 **params})
 
-            pred = apply_greeks(test_cp, params)
+            pred = apply_greeks(test_cp, params,ej_gamma)
 
             pred["test_month"] = m
 
@@ -322,6 +324,7 @@ def rolling_window_estimated(
     coef,
     f1="2004-01-01",
     f2="2015-08-31",
+    ej_gamma:bool =True,
     cp_col="CallPut" ):
 
     df = pairs.copy()
@@ -364,7 +367,7 @@ def rolling_window_estimated(
         # Una fila = un conjunto a,b,c
         params = g.iloc[0]
 
-        pred = apply_greeks( test, params )
+        pred = apply_greeks( test, params,ej_gamma )
 
         pred["test_month"] = (testing_start.to_period("M"))
 

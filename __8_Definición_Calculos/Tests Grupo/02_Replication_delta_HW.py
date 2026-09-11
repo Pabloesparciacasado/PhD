@@ -4,19 +4,11 @@
 Análisis de curvaturas y superficie de griegas sobre la moneyness.
 """
 import pandas as pd
-import numpy as np
 import sys
 import os
-from functools import reduce
-import re
 import duckdb
-from datetime import datetime
 
-from tabulate import tabulate
 import matplotlib.pyplot as plt
-from statsmodels.regression.linear_model import OLS
-from statsmodels.tools import add_constant
-from statsmodels.stats.sandwich_covariance import cov_hac
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -27,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from funciones_HW import dataset_preparation, fit_hw_coefficients, apply_hw_delta, hw_rolling_window, gain_hw
+from funciones_HW import dataset_preparation, fit_hw_coefficients, apply_greeks, rolling_window, gain_hw
 
 
 if os.name == 'nt':
@@ -101,10 +93,14 @@ duckdb.from_df(pairs).write_parquet(
 
 print(f"pairs guardado correctamente en: {PATH_CLEAN_DATA}")
 
-# =======================================================================
-oos, coef = hw_rolling_window( pairs )
-# =======================================================================
+# %%
 
+ej_gamma=False
+import importlib, funciones_HW
+importlib.reload(funciones_HW)
+from funciones_HW import dataset_preparation, fit_hw_coefficients, apply_greeks, rolling_window, gain_hw
+
+oos, coef = rolling_window(pairs,ej_gamma,desde,hasta )
 
 oos["test_month"] = oos["test_month"].dt.to_timestamp()
 

@@ -4,21 +4,13 @@ import pandas as pd
 import numpy as np
 import sys
 import os
-from functools import reduce
-import re
 import duckdb
-from datetime import datetime
 
-from tabulate import tabulate
 import matplotlib.pyplot as plt
-from statsmodels.regression.linear_model import OLS
-from statsmodels.tools import add_constant
-from statsmodels.stats.sandwich_covariance import cov_hac
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
-from scipy.stats import norm
 
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -36,15 +28,11 @@ if os.name == 'nt':
     PATH_COEF_OUT = r"Y:\OUTPUTS\REPLICA_HW\HW_coef.csv"
     PATH_OOS_OUT = r"Y:\OUTPUTS\REPLICA_HW\HW_oos.parquet"
 
-    PATH_RESULTS =  r"Y:\OUTPUTS\REPLICA_HW\DeltaGamma_results.parquet"
+    PATH_RESULTS =  r"Y:\OUTPUTS\REPLICA_HW\DG_results.parquet"
     PATH_RESULTS_reg = r"Y:\OUTPUTS\REPLICA_HW\DeltaGamma_results_reg.parquet"
-
-
 
 else:
     PATH_DATA = r"/Volumes/data/OUTPUTS/opt_df_prueba.parquet"
-
-
 
 # In[]: Cargamos datos y calculamos griegas:
 
@@ -74,8 +62,10 @@ pairs["Volga"] = volga
 pairs["Vanna"] = vanna
 pairs["volga_norm"] = volga_norm
 
+desde = "2003-01-02"
+hasta = "2024-02-29"
 
-result = rolling_window_estimated(pairs,COEF)
+result = rolling_window_estimated(pairs,COEF,desde,hasta)
 
 result["test_month"] = result["test_month"].dt.to_timestamp()
 
