@@ -343,8 +343,6 @@ gamma_serie_putsl = serie_gamma1_m[serie_gamma1_m["CallPut"] == "P"]["gamma_emp"
 delta_serie_callsl = serie_delta1_m[serie_delta1_m["CallPut"] == "C"]["delta_emp"].dropna()
 delta_serie_putsl = serie_delta1_m[serie_delta1_m["CallPut"] == "P"]["delta_emp"].dropna()
 
-
-
 # Mostramos descritpivos de la serie temporal para GAMMA Call
 print("Gamma Call")
 gamma_serie_callsl_diff = gamma_serie_callsl.diff().dropna()
@@ -919,7 +917,7 @@ net_exposure = pd.DataFrame({
     "BS_Gamma_Exposure": (greek_net_exposure(opt_df_greek_filt_95, "gamma", 21, empirical=False))["BS_Gamma_Exposure"],
 })
 
-
+ 
 net_exposure_gamma_m = diferencia_mensual(net_exposure,"Gamma_Exposure", "BS_Gamma_Exposure")
 net_exposure_delta_m = diferencia_mensual(net_exposure,"Delta_Exposure", "BS_Delta_Exposure")
 

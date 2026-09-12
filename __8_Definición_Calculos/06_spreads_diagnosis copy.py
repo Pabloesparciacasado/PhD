@@ -18,14 +18,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-empirical = False
+empirical = True
 market = "spx" # "crsp"  "spx"
+agregacion_mensual = "media"  # "ultimo": pipeline actual; "media": media diaria del mes
+callput = "C" 
+
+if agregacion_mensual not in {"ultimo", "media"}:
+    raise ValueError("agregacion_mensual debe ser 'ultimo' o 'media'")
 
 if os.name == 'nt':
     if empirical:
-        PATH_DATA =  r"Y:\OUTPUTS\WA_mv_greeks.csv"
+        PATH_DATA =  r"Y:\OUTPUTS\WA_mv_greeks_prueba.csv"
     else:
-        PATH_DATA =  r"Y:\OUTPUTS\WA_mv_greeks.csv"
+        PATH_DATA =  r"Y:\OUTPUTS\WA_mv_greeks_prueba.csv"
 
     DIAG_PATH =  r"Y:\Famma-French"
 else:
@@ -123,6 +128,28 @@ def serie_mensual_general(df, value_col, out_name=None):
     return mensual
 
 
+def media_mensual_aritmetic(df, value_col, callput=None, out_name=None):
+    """Media simple de los valores diarios disponibles de una serie en cada mes.
+
+    Filtra por CallPut cuando se indica. Para series globales como net exposure,
+    elimina las copias idénticas por fecha para dar el mismo peso a cada día.
+    """
+    out_name = out_name or value_col
+    sub = df if callput is None else df.loc[df["CallPut"] == callput]
+    sub = sub.loc[sub[value_col].notna(), ["Date", value_col]].copy()
+    sub["Date"] = pd.to_datetime(sub["Date"])
+    sub = sub.drop_duplicates()
+    if sub["Date"].duplicated().any():
+        raise ValueError(f"Hay varios valores de {value_col} para una misma fecha")
+    sub["periodo_mes"] = sub["Date"].dt.to_period("M")
+
+    return (
+        sub.groupby("periodo_mes", as_index=False)[value_col]
+        .mean()
+        .rename(columns={value_col: out_name})
+    )
+
+
 def retorno_mensual_compuesto(df, return_col, out_name=None):
     """
     Calcula el retorno mensual compuesto a partir de retornos diarios simples.
@@ -153,6 +180,27 @@ def retorno_mensual_compuesto(df, return_col, out_name=None):
 
     return mensual
 
+# %%
+
+dd = agg_df[["Date", "CallPut", "w_Gamma_gamma_OI","w_gamma_emp_gamma_OI","sum_OpenInterest","w_delta_mv_delta_OI", "w_Delta_delta_OI"]]
+
+dd["position"] = np.where(dd["CallPut"]=="C",1,-1)
+
+total_oi_por_fecha = dd.groupby("Date")["sum_OpenInterest"].transform("sum")
+
+
+dd["w_Gamma_gamma_OI_pos"] = (dd["w_Gamma_gamma_OI"] * dd["position"]) / total_oi_por_fecha
+dd["w_gamma_emp_gamma_OI_pos"] = (dd["w_gamma_emp_gamma_OI"] * dd["position"]) / total_oi_por_fecha
+
+# 5. Volvemos a usar .transform() para sumar los resultados por fecha directamente en la tabla
+dd["imbalance_gamma"] = dd.groupby("Date")["w_Gamma_gamma_OI_pos"].transform("sum")
+dd["imbalance_gamma_emp"] = dd.groupby("Date")["w_gamma_emp_gamma_OI_pos"].transform("sum")
+
+agg_df["imbalance_gamma"] = dd["imbalance_gamma"]*10000000
+agg_df["imbalance_gamma_emp "] = dd["imbalance_gamma_emp"]*10000000 
+
+
+
 #%%
 # Nombre final -> columna real en agg_df
 if empirical:
@@ -173,6 +221,7 @@ if empirical:
     "w_gamma_VD":              "w_gamma_emp_gamma_VD",
     "w_delta_OI":              "w_delta_mv_delta_OI",
     "w_delta_VD":              "w_delta_mv_delta_VD",
+    "imbalance_gamma":         "imbalance_gamma_emp"
 }
 else:
     variables_mensuales = {
@@ -192,12 +241,31 @@ else:
     "w_gamma_VD":              "w_Gamma_gamma_VD",
     "w_delta_OI":              "w_Delta_delta_OI",
     "w_delta_VD":              "w_Delta_delta_VD",
+    "imbalance_gamma":         "imbalance_gamma"
 }
 
+agregador_por_tipo = media_mensual_aritmetic if agregacion_mensual == "media" else serie_mensual
+agregador_general = media_mensual_aritmetic if agregacion_mensual == "media" else serie_mensual_general
+
 series_mensuales = [
-    serie_mensual(agg_df, col, callput="P", out_name=nombre)
+    agregador_por_tipo(agg_df, col, callput=callput, out_name=nombre)
     for nombre, col in variables_mensuales.items()
     if col in agg_df.columns ]
+
+variables_exposure = ["imbalance_gamma",
+    "Gamma_Exposure", "Delta_Exposure", "BS_Gamma_Exposure", "BS_Delta_Exposure",
+]
+faltan_exposure = [col for col in variables_exposure if col not in agg_df.columns]
+if faltan_exposure:
+    raise ValueError(
+        f"Faltan las columnas de net exposure: {faltan_exposure}. "
+        "Ejecuta 05_BSM_spread copy.py para actualizar WA_mv_greeks.csv."
+    )
+
+series_mensuales.extend(
+    agregador_por_tipo(agg_df, col)
+    for col in variables_exposure
+)
 
 # Cada serie puede tener meses distintos disponibles (huecos distintos); las unimos
 # con outer join por periodo_mes para no perder observaciones de ninguna variable.
@@ -1133,6 +1201,10 @@ def regresion_predictiva(
 """
 
 variables = ['w_gamma_OI', 'w_gamma_VD',"w_delta_OI","w_delta_VD"]
+variables += (
+    ["Gamma_Exposure", "Delta_Exposure", "imbalance_gamma"] if empirical
+    else ["BS_Gamma_Exposure", "BS_Delta_Exposure"]
+)
 horizontes = [1, 2, 3, 12, 24, 36, 48]
 lags = [0]
 # Lista que acumulará todas las regresiones
@@ -1163,7 +1235,7 @@ if empirical:
     registros=resultados_excel,
     ruta_excel=(
         f"Y:/OUTPUTS/Resultados/"
-        f"AAregresiones_predictivas_IS_{market}_ej_P.xlsx"
+        f"AAregresiones_predictivas_IS_{market}_{agregacion_mensual}_{callput}.xlsx"
     ),
 )
 else:
@@ -1171,7 +1243,7 @@ else:
     registros=resultados_excel,
     ruta_excel=(
         f"Y:/OUTPUTS/Resultados/"
-        f"AAregresiones_predictivas_IS_{market}_BS_P.xlsx"
+        f"AAregresiones_predictivas_IS_{market}_BS_{agregacion_mensual}_{callput}.xlsx"
     ),
 )
 

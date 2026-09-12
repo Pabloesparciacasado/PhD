@@ -7,108 +7,29 @@ from functools import reduce
 import re
 import duckdb
 
-from tabulate import tabulate
-import matplotlib.pyplot as plt
-from statsmodels.regression.linear_model import OLS
-from statsmodels.tools import add_constant
-from statsmodels.stats.sandwich_covariance import cov_hac
 
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 if os.name == 'nt':
-    PATH_DATA = r"Y:\OUTPUTS\opt_df_empirical_greeks_sinfiltro.parquet"
-    OUT_PATH =  r"Y:\OUTPUTS\Agg_Greeks_BS.csv"
+    PATH_DATA = r"Y:\OUTPUTS\opt_df_empirical_greeks.parquet"
+    PATH_RESULTS =  r"Y:\OUTPUTS\REPLICA_HW\DeltaGamma_results_reg.parquet"
+
+    OUT_PATH =  r"Y:\OUTPUTS\WA_mv_greeks.csv"
 else:
     PATH_DATA = r"/Volumes/data/OUTPUTS/opt_df_empirical_greeks.parquet"
 
 print("Cargando datos...")
-opt_df = pd.read_parquet(PATH_DATA)
+opt_df = pd.read_parquet(PATH_RESULTS)
 
 # #Añadimos algunas variables de interés:
-# opt_df["Dummy_Bid"] = opt_df["Bid"] > 0
+# Ya traemos los dtaos filtrados según HW(2017)
 opt_df["DolarVolume"] = opt_df["Volume"] * opt_df["MidPrice"]
-
-
-
-# Asignamos buckets de vencimientos:¡
-v_grid = [0, 15, 45, 105, 183, 365, np.inf]
-v_edges = pd.IntervalIndex.from_breaks(v_grid, closed="right")
-opt_df["maturity_bucket"] = pd.cut(opt_df["Days"], 
-    bins=v_edges, 
-    labels=False, 
-    include_lowest=True)
-
-
-m_grid = np.round(  np.linspace(0.1,2,int(2/0.1)),2)
-m_grid = np.concatenate(([0],m_grid, [np.inf]))
-m_edges = pd.IntervalIndex.from_breaks(m_grid, closed="right")
-opt_df["moneyness_bucket"] = pd.cut(opt_df["Moneyness"], bins=m_edges, labels=False, include_lowest=True)
-
-
-# Recuperamos el formato de intervalos
- 
-def parse_bound(x):
-    x = x.strip().lower()
-
-    if x in ["inf", "+inf", "infinity", "+infinity", "np.inf"]:
-        return np.inf
-    elif x in ["-inf", "-infinity", "-np.inf"]:
-        return -np.inf
-    else:
-        return float(x)
-
-def parse_interval(s):
-    if pd.isna(s):
-        return pd.NA
-
-    if isinstance(s, pd.Interval):
-        return s
-
-    s = str(s).strip()
-
-    pattern = r"^(\(|\[)\s*([^,]+)\s*,\s*([^\]\)]+)\s*(\)|\])$"
-    match = re.match(pattern, s)
-
-    if not match:
-        raise ValueError(f"Formato de intervalo no reconocido: {s}")
-
-    left_bracket, left, right, right_bracket = match.groups()
-
-    left = parse_bound(left)
-    right = parse_bound(right)
-
-    if left_bracket == "[" and right_bracket == "]":
-        closed = "both"
-    elif left_bracket == "[" and right_bracket == ")":
-        closed = "left"
-    elif left_bracket == "(" and right_bracket == "]":
-        closed = "right"
-    else:
-        closed = "neither"
-
-    return pd.Interval(left, right, closed=closed)
-
-opt_df["maturity_bucket"] = opt_df["maturity_bucket"].apply(parse_interval)
-opt_df["moneyness_bucket"] = opt_df["moneyness_bucket"].apply(parse_interval)
 
 
 opt_df
 
-# In[]: Limpieza de datos. Nos quedamos con un maturity aprox 30 días
-
-#opt_df = opt_df.drop(columns=["delta_emp_op2","delta_emp_op3","gamma_emp_op2", "gamma_emp_op3"]) # + "Moneyness_Forward","log_moneyness_Forward"
-
-mask = opt_df["maturity_bucket"] == pd.Interval(15, 45.0, closed="right")
-opt_df_filtrado = opt_df[mask]
-
-print(opt_df_filtrado.isnull().sum())
-opt_df_filtrado.shape
-
-
-# opt_df_filtrado = opt_df_filtrado.dropna()
-# opt_df_filtrado.shape
 # In[]: Funciones:
 
 # Dos posibilidades de cálculo:
@@ -132,7 +53,7 @@ def WA_diaria(df,variable, greek_emp, greek_teo):
             "Date":       dt,
             "CallPut":    cp,
             f"w_{greek_emp}":    (oi * grupo_valid[greek_emp]).sum() / oi.sum(),
-            # greek_teo:    (oi * grupo_valid[greek_teo]).sum() / oi.sum(),
+            f"w_{greek_teo}":    (oi * grupo_valid[greek_teo]).sum() / oi.sum(),
             f"mean_{variable}":     oi.mean(),
             "n_contratos": len(grupo_valid)
         })
@@ -223,53 +144,24 @@ def gamma_spread_left(df, variable, greek_emp, bucket_col="Moneyness"):
 
     return pd.DataFrame(resultados_spread)
 
-## DEJAMOS ABIERTO:
 
-# 1) PCA para obtener la pendiente
-# 2) LPKR o solo Kernel ponderando por OI.
-# 3) WLS 
-# redefinición de las categorías de moneyness. 
 
 # %% Ejecución:
-opt_df_filtrado[opt_df_filtrado["OpenInterest"] > 0]
 
-g_spread_left = gamma_spread_left(opt_df_filtrado, "OpenInterest","Gamma" )
-d_spread_left = gamma_spread_left(opt_df_filtrado, "OpenInterest","Delta" )
+serie_gamma_OI = WA_diaria(opt_df,"OpenInterest", "gamma_emp", "Gamma")
+serie_gamma_VD = WA_diaria(opt_df,"DolarVolume", "gamma_emp", "Gamma")
 
-serie_gamma_OI = WA_diaria(opt_df_filtrado,"OpenInterest", "Gamma", "Gamma")
-serie_gamma_VD = WA_diaria(opt_df_filtrado,"DolarVolume", "Gamma", "Gamma")
+serie_delta_OI = WA_diaria(opt_df,"OpenInterest", "delta_mv", "Delta")
+serie_delta_VD = WA_diaria(opt_df,"DolarVolume", "delta_mv", "Delta")
 
-serie_delta_OI = WA_diaria(opt_df_filtrado,"OpenInterest", "Delta", "Delta")
-serie_delta_VD = WA_diaria(opt_df_filtrado,"DolarVolume", "Delta", "Delta")
+
 
 
 # %% Unimos resultados:
 
-keys = ["Date", "CallPut", "bucket"]
+
 
 dfs = [
-    g_spread_left.add_suffix("_gspread").rename(columns={
-        "Date_gspread": "Date",
-        "CallPut_gspread": "CallPut",
-        "bucket_gspread": "bucket"
-    }),
-
-    d_spread_left.add_suffix("_dspread").rename(columns={
-        "Date_dspread": "Date",
-        "CallPut_dspread": "CallPut",
-        "bucket_dspread": "bucket"
-
-    })
-]
-
-final_df = reduce(
-    lambda x, y: pd.merge(x, y, on=keys, how="outer"),
-    dfs
-)
-
-dfs = [
-    final_df,
-
     serie_gamma_OI.add_suffix("_gamma_OI").rename(columns={
         "Date_gamma_OI": "Date",
         "CallPut_gamma_OI": "CallPut",
@@ -298,8 +190,6 @@ final_df = reduce(
     dfs
 )
 
-
-
 # %% Ordenamos y guardamos
 # Columnas redundantes que eliminamos
 
@@ -314,15 +204,15 @@ rem_n_contratos = [
 ]
 
 rem_dspread_values = [
-    "Delta_near_dspread",
-    "Delta_deep_dspread",
-    "Delta_very_deep_dspread",
+    "delta_emp_near_dspread",
+    "delta_emp_deep_dspread",
+    "delta_emp_very_deep_dspread",
 ]
 
 rem_gspread_values = [
-    "Gamma_near_gspread",
-    "Gamma_deep_gspread",
-    "Gamma_very_deep_gspread",
+    "gamma_emp_near_gspread",
+    "gamma_emp_deep_gspread",
+    "gamma_emp_very_deep_gspread",
 ]
 
 rem_open_interest_dspread = [
@@ -376,6 +266,10 @@ id_cols = [
 ]
 
 weighted_cols = [
+    "w_gamma_emp_gamma_OI",
+    "w_gamma_emp_gamma_VD",
+    "w_delta_mv_delta_OI",
+    "w_delta_mv_delta_VD",
     "w_Gamma_gamma_OI",
     "w_Gamma_gamma_VD",
     "w_Delta_delta_OI",
@@ -383,14 +277,14 @@ weighted_cols = [
 ]
 
 spread_gamma_cols = [
-    "Gamma_ATM_gspread",
+    "gamma_emp_ATM_gspread",
     "spread_ATM_minus_near_gspread",
     "spread_ATM_minus_deep_gspread",
     "spread_ATM_minus_very_deep_gspread",
 ]
 
 spread_delta_cols = [
-    "Delta_ATM_dspread",
+    "delta_emp_ATM_dspread",
     "spread_ATM_minus_near_dspread",
     "spread_ATM_minus_deep_dspread",
     "spread_ATM_minus_very_deep_dspread",
@@ -429,21 +323,9 @@ orden_columnas = [col for col in orden_columnas if col in final_df.columns]
 otras_cols = [col for col in final_df.columns if col not in orden_columnas]
 
 final_df = final_df[orden_columnas + otras_cols]
-final_df
 
-
-
-
-
-
-duckdb.from_df(final_df).write_parquet(
-    str(OUT_PATH),
-    compression="snappy"
-)
+final_df.to_csv(OUT_PATH, index=False, encoding='utf-8')
 
 print(f"Fichero guardado correctamente en: {OUT_PATH}")
 
 # %%
-##########################################################################################
-# DIAGNOSIS
-##########################################################################################
